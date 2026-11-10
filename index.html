@@ -4412,7 +4412,7 @@ function filtrerMagasinsMail() {
       '<div style="flex:1;min-width:0">' +
     '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(p.name) + '</div>' +
         '<input class="form-input" value="' + escHtml(email) + '" placeholder="email@magasin.com" ' +
-          'onchange="sauverContactMail(\'' + p.id + '\',this.value)" ' +
+          'onchange="sauverContactMail(\'' + p.id + '\',this.value)" onblur="sauverContactMail(\'' + p.id + '\',this.value)" ' +
           'style="font-size:11px;padding:4px 8px;margin-top:4px" />' +
       '</div>' +
     '</div>';
@@ -4423,14 +4423,13 @@ function filtrerMagasinsMail() {
 function sauverContactMail(pdvId, email) {
   email = (email || '').trim();
   var pdv = (db.pdvList || []).find(function(p) { return p.id === pdvId; });
-  if (pdv) {
-    pdv.email = email;
-    saveDB();
-    var lightPDV = (db.pdvList || []).map(function(p) { return [p.name, p.enseigne, p.secteur, p.email || '', p.commentaire || '']; });
-    apiPost({ action:'syncAllPDV', pdvData:lightPDV }, { queue:true, keepalive:true }).then(function(ok){
-      showToast(ok ? '✅ Email enregistré' : '⚠️ Email sauvé en local — sera renvoyé à la reconnexion');
-    });
-  }
+  if (!pdv || (pdv.email || '') === email) return;
+  pdv.email = email;
+  pdv._emailPending = true;
+  saveDB();
+  apiPost({ action:'updatePDVEmail', name:pdv.name, enseigne:pdv.enseigne, secteur:pdv.secteur, email:email }, { queue:true, keepalive:true }).then(function(ok){
+    showToast(ok ? '✅ Email enregistré' : '⚠️ Email sauvé en local — sera renvoyé à la reconnexion');
+  });
 }
 
 function selectAllMagasinsMail(state) {
@@ -7784,7 +7783,7 @@ function handleAuthError(res) {
 // Les appels idempotents passes avec {queue:true} sont mis en file
 // d'attente hors ligne et rejoues automatiquement au retour du reseau.
 // ══════════════════════════════════════════════════════════
-var QUEUEABLE_ACTIONS = ['syncAllPDV', 'updatePDVComment', 'upsertFormation', 'deleteFormation', 'syncConfig', 'upsertSession', 'savePlvCommande', 'saveTable'];
+var QUEUEABLE_ACTIONS = ['syncAllPDV', 'updatePDVComment', 'upsertFormation', 'deleteFormation', 'syncConfig', 'upsertSession', 'savePlvCommande', 'saveTable', 'updatePDVEmail'];
 
 // Le jeton de session est ajoute ici, une fois pour toutes : aucune action
 // n'a besoin d'y penser. 'login' est la seule exception (il n'en a pas encore).
@@ -8516,7 +8515,11 @@ db.quizzes = data.quizzes.filter(function(q) {
       var key = (srv.enseigne || '') + '||' + (srv.name || '');
       var loc = localByKey[key];
       // si le serveur renvoie un email vide mais qu'on en a un en local, on garde le local
-      if (loc && loc.email && !srv.email) srv.email = loc.email;
+      var srvEmail = srv.email || '';
+      if (loc && loc.email && (!srvEmail || loc._emailPending)) {
+        srv.email = loc.email;
+        if (loc._emailPending && srvEmail !== loc.email) srv._emailPending = true;
+      }
       return srv;
     });
   }
