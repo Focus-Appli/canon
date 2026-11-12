@@ -19,7 +19,7 @@
      webhook   : adresse de l'Apps Script du client
      parametres: valeurs par défaut (nom, couleur, logo, libellés…) — le
                  manager peut les modifier dans « Paramétrage & données »
-     defauts   : typologies, outils et messages utilisés tant que les
+     defauts   : typologies, outils, messages et tableurs utilisés tant que les
                  onglets correspondants n'existent pas dans le Sheet
      ════════════════════════════════════════════════════════════════════ -->
 <script>
@@ -38,6 +38,7 @@ window.APP_CONFIG = {
   "libOffresAccueil": "Communications en cours",
   "libOffresAccueilSous": "Offres, gratuités et informations par enseigne",
   "offresExclues": "Adveo",
+  "offresEnseignes": "Alkor, Comlandi, Bureau Vallée",
   "libFormateur": "Formateur Canon",
   "sujetPromos": "Promotions Canon",
   "categoriesFormation": "SPP, PHOTO, PRINT, CONSOS, DIVERS",
@@ -214,7 +215,8 @@ window.APP_CONFIG = {
     "lien": "",
     "suivi": "rappel-rapports"
    }
-  ]
+  ],
+  "tableurs": []
  }
 };
 </script>
@@ -1461,7 +1463,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     <div id="rapport-step-fill" style="display:none">
       <div class="rapport-fill-section">
         <div class="rapport-fill-label">Informations de visite</div>
-        <div class="form-group"><label class="form-label">Nom du rapport *</label><input class="form-input" id="rapport-fill-magasin" placeholder="ex : Feedback Boulanger Print" /></div>
+        <div class="form-group"><label class="form-label">Nom du rapport *</label><input class="form-input" id="rapport-fill-magasin" placeholder="ex : Feedback visite magasin" /></div>
         <div class="form-group"><label class="form-label">Date *</label><input class="form-input" id="rapport-fill-date" type="date" /></div>
       </div>
       <div id="rapport-fill-fields"></div>
@@ -1494,7 +1496,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   <div class="content">
     <div class="form-group">
       <label class="form-label">Nom du template *</label>
-      <input class="form-input" id="tpl-name" placeholder="ex : Visite Boulanger mensuelle" />
+      <input class="form-input" id="tpl-name" placeholder="ex : Visite mensuelle" />
     </div>
     <div class="form-group">
       <label class="form-label">Enseigne *</label>
@@ -1612,7 +1614,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     <div id="enseignes-list-container"></div>
     <div id="enseigne-form-panel" style="display:none;background:var(--white);border-radius:var(--radius);padding:18px;margin-top:16px;box-shadow:var(--shadow)">
       <div style="font-size:14px;font-weight:700;margin-bottom:14px" id="enseigne-form-title">Nouvelle enseigne</div>
-      <div class="form-group"><label class="form-label">Nom de l'enseigne *</label><input class="form-input" id="enseigne-form-name" placeholder="ex : Boulanger" /></div>
+      <div class="form-group"><label class="form-label">Nom de l'enseigne *</label><input class="form-input" id="enseigne-form-name" placeholder="ex : Mon enseigne" /></div>
       <input type="hidden" id="enseigne-form-idx" value="" />
       <button class="btn btn-primary mb-8" onclick="saveEnseigne()">&#128190; Enregistrer</button>
       <button class="btn btn-secondary" onclick="hideEnseigneForm()">Annuler</button>
@@ -1821,7 +1823,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   </div>
 </div>
 
-<!-- LISTE CONFIGURABLE (typologies, outils, messages) -->
+<!-- LISTE CONFIGURABLE (typologies, outils, messages, tableurs) -->
 <div class="screen" id="screen-liste-config">
   <div class="topbar">
     <button class="topbar-back" onclick="goTo('screen-parametrage')">←</button>
@@ -1829,6 +1831,20 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   </div>
   <div class="content">
     <div id="liste-config-contenu"></div>
+  </div>
+</div>
+
+<!-- TABLEURS — fichiers Excel / SharePoint à compléter (onglet Tableurs) -->
+<div class="screen" id="screen-tableurs">
+  <div class="topbar">
+    <button class="topbar-back" onclick="goTo('screen-home')">←</button>
+    <span class="topbar-title">Tableurs à compléter</span>
+  </div>
+  <div class="content">
+    <div style="font-size:12px;color:var(--dark-gray);margin-bottom:14px;line-height:1.5">
+      Touchez un tableur pour l'ouvrir dans Excel (application ou navigateur). Vos saisies sont enregistrées directement dans le fichier partagé.
+    </div>
+    <div id="tableurs-list"></div>
   </div>
 </div>
 
@@ -2146,7 +2162,8 @@ function typologieDe(ens) {
 // Les enseignes du module Offres = celles des typologies cochées « offres ».
 // Le tableau ITO_ENSEIGNES est mis à jour SUR PLACE : tout le code existant
 // du module continue de le lire sans changement.
-var OFFRES_ENSEIGNES_DEFAUT = ['Alkor', 'Comlandi', 'Bureau Vallée'];
+// Valeur du client (bloc APP_CONFIG > parametres > offresEnseignes)
+var OFFRES_ENSEIGNES_DEFAUT = enListe((APP.parametres || {}).offresEnseignes || '');
 function offresEnseignesConfig() {
   var v = db && db.parametres && db.parametres.offresEnseignes;
   if (v === undefined || v === null || String(v).trim() === '') return null;
@@ -2240,6 +2257,80 @@ function liensVisibles() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// TABLEURS — fichiers Excel (SharePoint, OneDrive, Google Sheets…) que les
+// équipes complètent. Chaque ligne de l'onglet « Tableurs » = un fichier,
+// quelle que soit sa structure : l'appli ouvre le vrai fichier.
+// roles    : qui le voit (vide = tout le monde)
+// secteurs : secteurs concernés (vide = tous) — le manager voit tout, l'admin tous les secteurs
+// echeance : date limite facultative (AAAA-MM-JJ), affichée en couleur
+// ══════════════════════════════════════════════════════════════════════
+function tableursListe() {
+  return refListe('tableurs').map(function(o, i) {
+    return { id: String(o.id || ('tab_' + i)), titre: String(o.titre || ''), sousTitre: String(o.sousTitre || ''), url: String(o.url || '').trim(),
+      consigne: String(o.consigne || ''), echeance: String(o.echeance || '').slice(0, 10), roles: enListe(o.roles), secteurs: enListe(o.secteurs),
+      ordre: Number(o.ordre) || 0, actif: enBool(o.actif, true) };
+  }).filter(function(o) { return o.titre && o.url && o.actif; }).sort(function(a, b) {
+    return parOrdre(a, b) || String(a.echeance || '9999').localeCompare(String(b.echeance || '9999'));
+  });
+}
+function tableursVisibles() {
+  if (!currentAccount) return [];
+  var voitTout = hasRole('manager') || hasRole('admin');
+  var monSecteur = String(currentAccount.sector || '').trim().toLowerCase();
+  return tableursListe().filter(function(t) {
+    if (hasRole('manager')) return true;
+    if (t.roles.length && !t.roles.some(function(r) { return hasRole(r); })) return false;
+    if (voitTout || !t.secteurs.length || !monSecteur) return true;
+    return t.secteurs.some(function(s) { return s.toLowerCase() === monSecteur; });
+  });
+}
+function joursAvant(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  var p = iso.split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]), auj = new Date();
+  auj.setHours(0, 0, 0, 0);
+  return Math.round((d - auj) / 86400000);
+}
+function badgeEcheance(iso) {
+  var j = joursAvant(iso);
+  if (j === null) return '';
+  var date = iso.split('-').reverse().join('/');
+  var txt = j < 0 ? 'Échéance dépassée (' + date + ')' : j === 0 ? "À rendre aujourd'hui" : 'À rendre avant le ' + date + (j <= 7 ? ' · J-' + j : '');
+  var bg = j < 0 ? 'var(--brand)' : j <= 3 ? '#C27A12' : 'var(--charcoal)';
+  return '<span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;background:' + bg + '">' + escHtml(txt) + '</span>';
+}
+function renderTableurs() {
+  var c = document.getElementById('tableurs-list');
+  if (!c) return;
+  var l = tableursVisibles();
+  if (!l.length) {
+    c.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📑</div><div class="empty-state-title">Aucun tableur à compléter</div>' +
+      (hasRole('manager') ? '<div class="empty-state-sub">Ajoutez-en dans ☰ › Configuration › Paramétrage & données › Tableurs.</div>' : '') + '</div>';
+    return;
+  }
+  c.innerHTML = l.map(function(t, i) {
+    return '<div class="quiz-card fade-up" style="animation-delay:' + (i * 0.04).toFixed(2) + 's;align-items:flex-start" onclick="ouvrirTableur(\'' + escHtml(t.id).replace(/'/g, "\\'") + '\')">' +
+      '<div class="quiz-card-icon">📑</div>' +
+      '<div class="quiz-card-body">' +
+        '<div class="quiz-card-title">' + escHtml(t.titre) + '</div>' +
+        (t.sousTitre ? '<div class="quiz-card-meta">' + escHtml(t.sousTitre) + '</div>' : '') +
+        (t.consigne ? '<div style="font-size:12px;color:var(--dark-gray);margin-top:6px;line-height:1.45;white-space:pre-line">' + escHtml(t.consigne) + '</div>' : '') +
+        badgeEcheance(t.echeance) +
+      '</div>' +
+      '<div class="quiz-card-arrow">↗</div>' +
+    '</div>';
+  }).join('');
+}
+// Ouvre le fichier hors de l'appli (indispensable sur iPhone pour la connexion Microsoft)
+function ouvrirTableur(id) {
+  var t = tableursVisibles().filter(function(x) { return x.id === id; })[0];
+  if (!t) return;
+  var w = null;
+  try { w = window.open(t.url, '_blank'); } catch (e) {}
+  if (w) { try { w.opener = null; } catch (e) {} } else { window.location.href = t.url; }
+  try { logEvent('tableur-ouvert', t.titre); } catch (e) {}
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // MESSAGES & RAPPELS — bandeaux ou pop-up, avec récurrence (onglet Messages)
 // ──────────────────────────────────────────────────────────────────────
 // type        : confirmation (« Oui, c'est fait ») ou information (« J'ai compris »)
@@ -2259,7 +2350,7 @@ var MSG_ECRANS = [
   ['', '— Aucun —'], ['screen-rapports', 'Rapports de visite'], ['screen-templates', 'Templates rapports'],
   ['screen-cds', 'Faire passer un quiz'], ['screen-promos', 'Promos'], ['screen-formations', 'Formations'],
   ['screen-offres-ito', 'Offres'], ['screen-plv', 'Commande PLV'], ['screen-mes-magasins', 'Mes magasins'],
-  ['screen-anomalie', 'Report anomalie'], ['screen-outils', 'Mes outils'], ['screen-sync-center', 'Synchronisation']
+  ['screen-anomalie', 'Report anomalie'], ['screen-outils', 'Mes outils'], ['screen-tableurs', 'Tableurs'], ['screen-sync-center', 'Synchronisation']
 ];
 var _msgReportes = {};
 var _msgPopupsVus = {};
@@ -2430,13 +2521,13 @@ function migrerConfirmationsV5() {
 // ══════════════════════════════════════════════════════════════════════
 // ENREGISTREMENT DES ONGLETS DE CONFIGURATION (manager)
 // ══════════════════════════════════════════════════════════════════════
-var TABLES_CONFIG = { typologies: 'Typologies', outils: 'Outils', messages: 'Messages' };
+var TABLES_CONFIG = { typologies: 'Typologies', outils: 'Outils', messages: 'Messages', tableurs: 'Tableurs' };
 
 function versLigneSheet(obj, cols) {
   var o = {};
   cols.forEach(function(c) {
     var v = obj[c.k];
-    if (c.type === 'liste' || c.type === 'roles' || c.type === 'enseignes') v = enListe(v).join(', ');
+    if (c.type === 'liste' || c.type === 'roles' || c.type === 'enseignes' || c.type === 'secteurs') v = enListe(v).join(', ');
     else if (c.type === 'ouinon') v = enBool(v, c.defaut === 'oui') ? 'oui' : 'non';
     o[c.k] = v === undefined || v === null ? '' : v;
   });
@@ -2491,7 +2582,7 @@ var MODS = {
       { k: 'libelle', t: 'Libellé', ex: 'Grandes surfaces spécialisées' },
       { k: 'couleur', t: 'Couleur', type: 'couleur', ex: '#1976D2' },
       { k: 'ordre', t: 'Ordre', type: 'nombre', ex: '1' },
-      { k: 'enseignes', t: 'Enseignes', type: 'enseignes', ex: 'Darty, Boulanger, Fnac', aide: 'Séparées par des virgules' },
+      { k: 'enseignes', t: 'Enseignes', type: 'enseignes', ex: 'Enseigne A, Enseigne B', aide: 'Séparées par des virgules' },
       { k: 'offres', t: 'Module Offres', type: 'ouinon', ex: 'non', aide: 'oui = ces enseignes ont un onglet dans le module Offres' }
     ],
     lire: function() { return typologies(); }
@@ -2511,6 +2602,23 @@ var MODS = {
       { k: 'actif', t: 'Actif', type: 'ouinon', defaut: 'oui', ex: 'oui' }
     ],
     lire: function() { return refListe('outils').map(function(o) { return Object.assign({}, o, { roles: enListe(o.roles), actif: enBool(o.actif, true) }); }); }
+  },
+  tableurs: {
+    titre: 'Tableurs', onglet: 'Tableurs', icone: '📑', remplacable: true, cle: 'id', editable: true,
+    aideOnglet: 'Les fichiers Excel que les équipes complètent (SharePoint, OneDrive, Google Sheets…). Collez le lien de partage du fichier, avec droit de modification pour les personnes concernées.',
+    cols: [
+      { k: 'id', t: 'Identifiant', auto: true, ex: '', aide: 'Laisser vide pour un nouveau tableur' },
+      { k: 'titre', t: 'Titre', oblig: true, ex: 'Stock PLV par secteur' },
+      { k: 'sousTitre', t: 'Sous-titre', ex: 'Mise à jour mensuelle' },
+      { k: 'url', t: 'Lien du fichier', oblig: true, type: 'url', ex: 'https://monentreprise.sharepoint.com/:x:/s/…', aide: 'Lien de partage SharePoint / OneDrive / Google Sheets' },
+      { k: 'consigne', t: 'Consigne', type: 'texte', ex: 'Complétez la ligne de votre secteur (cellules jaunes).' },
+      { k: 'echeance', t: 'À rendre avant le', type: 'date', ex: '', aide: 'Facultatif, AAAA-MM-JJ' },
+      { k: 'roles', t: 'Visible par', type: 'roles', ex: 'cds', aide: 'Vide = tout le monde. Sinon : ' + ROLES_EXCEL_AIDE },
+      { k: 'secteurs', t: 'Secteurs', type: 'secteurs', ex: '', aide: 'Vide = tous les secteurs. Sinon : noms séparés par des virgules' },
+      { k: 'ordre', t: 'Ordre', type: 'nombre', ex: '1' },
+      { k: 'actif', t: 'Actif', type: 'ouinon', defaut: 'oui', ex: 'oui' }
+    ],
+    lire: function() { return refListe('tableurs').map(function(o) { return Object.assign({}, o, { roles: enListe(o.roles), secteurs: enListe(o.secteurs), actif: enBool(o.actif, true) }); }); }
   },
   messages: {
     titre: 'Messages & rappels', onglet: 'Messages', icone: '🔔', remplacable: true, cle: 'id', editable: true,
@@ -2540,7 +2648,7 @@ var MODS = {
   },
   enseignes: {
     titre: 'Enseignes', onglet: 'Enseignes', icone: '🏢', remplacable: true,
-    cols: [ { k: 'name', t: 'Enseigne', oblig: true, ex: 'Boulanger' }, { k: 'typologie', t: 'Typologie', ex: 'GSS', aide: 'Facultatif : code d’une typologie existante' } ],
+    cols: [ { k: 'name', t: 'Enseigne', oblig: true, ex: 'Enseigne A' }, { k: 'typologie', t: 'Typologie', ex: 'GSS', aide: 'Facultatif : code d’une typologie existante' } ],
     lire: function() { return (db.enseignes || []).map(function(e) { var t = typologieDe(e); return { name: e, typologie: t ? t.code : '' }; }); },
     ecrire: function(lignes, remplacer) {
       var noms = lignes.map(function(l) { return String(l.name).trim(); }).filter(Boolean);
@@ -2577,8 +2685,8 @@ var MODS = {
   pdv: {
     titre: 'Points de vente', onglet: 'PDV', icone: '📍', remplacable: true,
     cols: [
-      { k: 'name', t: 'Magasin', oblig: true, ex: 'BOULANGER NANTES' },
-      { k: 'enseigne', t: 'Enseigne', oblig: true, ex: 'Boulanger' },
+      { k: 'name', t: 'Magasin', oblig: true, ex: 'MAGASIN NANTES' },
+      { k: 'enseigne', t: 'Enseigne', oblig: true, ex: 'Enseigne A' },
       { k: 'secteur', t: 'Secteur', ex: 'Ouest' },
       { k: 'email', t: 'Email', ex: 'magasin@exemple.com' },
       { k: 'commentaire', t: 'Commentaire', type: 'texte', ex: '' }
@@ -2694,7 +2802,7 @@ var MODS = {
       { k: 'end', t: 'Fin', oblig: true, type: 'date', ex: '2026-11-30' },
       { k: 'price', t: 'Prix', ex: '99.99' },
       { k: 'category', t: 'Catégorie', ex: 'Print' },
-      { k: 'enseignes', t: 'Enseignes', type: 'enseignes', ex: 'Darty, Fnac' },
+      { k: 'enseignes', t: 'Enseignes', type: 'enseignes', ex: 'Enseigne A, Enseigne B' },
       { k: 'comment', t: 'Commentaire', type: 'texte', ex: '' }
     ],
     lire: function() { return (db.promos || []).map(function(p) { return { name: p.name, start: dateIsoCourte(p.start && !/^\d{4}-/.test(p.start) ? new Date(p.start) : p.start), end: dateIsoCourte(p.end && !/^\d{4}-/.test(p.end) ? new Date(p.end) : p.end), price: p.price || '', category: p.category || '', enseignes: (p.enseignes || []).join(', '), comment: p.comment || '' }; }); },
@@ -2768,10 +2876,10 @@ var MODS = {
   }
 };
 // Ordre d'import du pack complet : les référentiels avant ce qui s'en sert
-var MODS_ORDRE = ['parametres', 'typologies', 'secteurs', 'enseignes', 'categories', 'pdv', 'comptes', 'outils', 'messages', 'plv', 'promos', 'quiz'];
+var MODS_ORDRE = ['parametres', 'typologies', 'secteurs', 'enseignes', 'categories', 'pdv', 'comptes', 'outils', 'tableurs', 'messages', 'plv', 'promos', 'quiz'];
 
-// Écriture générique des listes éditables (typologies, outils, messages)
-['typologies', 'outils', 'messages'].forEach(function(nom) {
+// Écriture générique des listes éditables (typologies, outils, messages, tableurs)
+['typologies', 'outils', 'messages', 'tableurs'].forEach(function(nom) {
   MODS[nom].ecrire = function(lignes, remplacer) {
     var def = MODS[nom], cleK = def.cle;
     var liste = remplacer ? [] : refListe(nom).map(function(x) { return Object.assign({}, x); });
@@ -2967,7 +3075,7 @@ function renderParametrage() {
       '<span style="width:22px;height:22px;border-radius:50%;background:' + escHtml(m.couleur) + ';border:2px solid #fff;flex-shrink:0"></span></div>';
 
   h += '<div class="section-label">🧩 Listes configurables</div>';
-  ['typologies', 'outils', 'messages'].forEach(function(nom) {
+  ['typologies', 'outils', 'messages', 'tableurs'].forEach(function(nom) {
     var d = MODS[nom], n = refListe(nom).length;
     h += '<div class="quiz-card" onclick="ouvrirListeConfig(\'' + nom + '\')"><div class="quiz-card-icon">' + d.icone + '</div>' +
       '<div class="quiz-card-body"><div class="quiz-card-title">' + escHtml(d.titre) + '</div><div class="quiz-card-meta">' + n + ' élément(s)</div></div><div class="quiz-card-arrow">→</div></div>';
@@ -3079,7 +3187,7 @@ function enregistrerMarque() {
   envoyerParametres().then(function(ok) { if (ok) showToast('✅ Personnalisation enregistrée'); });
 }
 
-// ── Éditeur générique de liste (typologies, outils, messages) ──
+// ── Éditeur générique de liste (typologies, outils, messages, tableurs) ──
 var _lcNom = '', _lcIdx = -1, _lcLogo = '';
 function ouvrirListeConfig(nom) { _lcNom = nom; goTo('screen-liste-config'); }
 function renderListeConfig() {
@@ -3094,6 +3202,7 @@ function renderListeConfig() {
     var titre = x.titre || x.libelle || x.code || '(sans titre)', sous = '';
     if (_lcNom === 'typologies') sous = x.code + ' · ' + enListe(x.enseignes).length + ' enseigne(s)' + (enBool(x.offres) ? ' · offres' : '');
     if (_lcNom === 'outils') sous = x.url + (enListe(x.roles).length ? ' · ' + enListe(x.roles).map(roleLabel).join(', ') : '');
+    if (_lcNom === 'tableurs') sous = (x.echeance ? 'avant le ' + String(x.echeance).slice(0, 10).split('-').reverse().join('/') + ' · ' : '') + (enListe(x.secteurs).length ? enListe(x.secteurs).join(', ') : 'tous secteurs') + (enListe(x.roles).length ? ' · ' + enListe(x.roles).map(roleLabel).join(', ') : '');
     if (_lcNom === 'messages') sous = (x.recurrence || 'une-fois') + ' · ' + (x.affichage || 'bandeau') + (enListe(x.roles).length ? ' · ' + enListe(x.roles).map(roleLabel).join(', ') : ' · tous');
     var inactif = (_lcNom !== 'typologies') && !enBool(x.actif, true);
     var icone = _lcNom === 'typologies' ? '<span style="width:18px;height:18px;border-radius:50%;background:' + escHtml(x.couleur || '#888') + ';display:inline-block"></span>' :
@@ -3113,8 +3222,9 @@ function champConfigHtml(c, v) {
     h += '<select class="form-input" id="' + id + '">' + opts.map(function(o) { return '<option value="' + escHtml(o[0]) + '"' + (String(v || c.defaut || '') === o[0] ? ' selected' : '') + '>' + escHtml(o[1]) + '</option>'; }).join('') + '</select>';
   } else if (c.type === 'ouinon') {
     h += '<label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" id="' + id + '"' + (enBool(v, c.defaut === 'oui') ? ' checked' : '') + '> Oui</label>';
-  } else if (c.type === 'roles' || c.type === 'enseignes') {
+  } else if (c.type === 'roles' || c.type === 'enseignes' || c.type === 'secteurs') {
     var choix = c.type === 'roles' ? ROLES_BASE.map(function(r) { return [r.id, r.nom]; }).concat((db.rolesPerso || []).map(function(r) { return [r.id, r.nom]; }))
+      : c.type === 'secteurs' ? getSectors().map(function(s) { return [s, s]; })
       : (db.enseignes || []).map(function(e) { return [e, e]; });
     var sel = enListe(v);
     sel.forEach(function(s) { if (!choix.some(function(x) { return x[0] === s; })) choix.push([s, s]); });
@@ -3135,7 +3245,7 @@ function champConfigHtml(c, v) {
     var type = c.type === 'nombre' ? 'number' : c.type === 'date' ? 'date' : c.type === 'couleur' ? 'color' : c.type === 'url' ? 'url' : 'text';
     h += '<input class="form-input" type="' + type + '" id="' + id + '" value="' + escHtml(c.type === 'couleur' ? (v || '#888888') : (v == null ? '' : v)) + '"' + (c.auto ? ' placeholder="automatique"' : '') + '>';
   }
-  if (c.aide && c.type !== 'roles' && c.type !== 'enseignes' && c.type !== 'choix') h += '<div style="font-size:11px;color:var(--dark-gray);margin-top:4px">' + escHtml(c.aide) + '</div>';
+  if (c.aide && c.type !== 'roles' && c.type !== 'enseignes' && c.type !== 'secteurs' && c.type !== 'choix') h += '<div style="font-size:11px;color:var(--dark-gray);margin-top:4px">' + escHtml(c.aide) + '</div>';
   return h + '</div>';
 }
 function choisirLogoElement(input) {
@@ -3163,7 +3273,7 @@ function enregistrerElementConfig() {
     var el = document.getElementById('lc-' + c.k);
     if (c.type === 'image') o[c.k] = _lcLogo;
     else if (c.type === 'ouinon') o[c.k] = el && el.checked ? 'oui' : 'non';
-    else if (c.type === 'roles' || c.type === 'enseignes') o[c.k] = el ? Array.prototype.map.call(el.querySelectorAll('input:checked'), function(cb) { return cb.value; }) : [];
+    else if (c.type === 'roles' || c.type === 'enseignes' || c.type === 'secteurs') o[c.k] = el ? Array.prototype.map.call(el.querySelectorAll('input:checked'), function(cb) { return cb.value; }) : [];
     else o[c.k] = el ? el.value.trim() : '';
   });
   var manque = d.cols.filter(function(c) { return c.oblig && !String(o[c.k] || '').trim(); }).map(function(c) { return c.t; });
@@ -3357,6 +3467,7 @@ function onScreenEnter(id) {
   if (id === 'screen-offres-ito') renderOffresITO();
   if (id === 'screen-anomalie') initAnomalie();
   if (id === 'screen-outils') renderOutils();
+  if (id === 'screen-tableurs') renderTableurs();
   if (id === 'screen-parametrage') renderParametrage();
   if (id === 'screen-liste-config') renderListeConfig();
   if (id === 'screen-formations') initFormationsScreen();
@@ -4412,7 +4523,7 @@ function filtrerMagasinsMail() {
       '<div style="flex:1;min-width:0">' +
     '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(p.name) + '</div>' +
         '<input class="form-input" value="' + escHtml(email) + '" placeholder="email@magasin.com" ' +
-          'onchange="sauverContactMail(\'' + p.id + '\',this.value)" ' +
+          'onchange="sauverContactMail(\'' + p.id + '\',this.value)" onblur="sauverContactMail(\'' + p.id + '\',this.value)" ' +
           'style="font-size:11px;padding:4px 8px;margin-top:4px" />' +
       '</div>' +
     '</div>';
@@ -4423,14 +4534,13 @@ function filtrerMagasinsMail() {
 function sauverContactMail(pdvId, email) {
   email = (email || '').trim();
   var pdv = (db.pdvList || []).find(function(p) { return p.id === pdvId; });
-  if (pdv) {
-    pdv.email = email;
-    saveDB();
-    var lightPDV = (db.pdvList || []).map(function(p) { return [p.name, p.enseigne, p.secteur, p.email || '', p.commentaire || '']; });
-    apiPost({ action:'syncAllPDV', pdvData:lightPDV }, { queue:true, keepalive:true }).then(function(ok){
-      showToast(ok ? '✅ Email enregistré' : '⚠️ Email sauvé en local — sera renvoyé à la reconnexion');
-    });
-  }
+  if (!pdv || (pdv.email || '') === email) return;
+  pdv.email = email;
+  pdv._emailPending = true;
+  saveDB();
+  apiPost({ action:'updatePDVEmail', name:pdv.name, enseigne:pdv.enseigne, secteur:pdv.secteur, email:email }, { queue:true, keepalive:true }).then(function(ok){
+    showToast(ok ? '✅ Email enregistré' : '⚠️ Email sauvé en local — sera renvoyé à la reconnexion');
+  });
 }
 
 function selectAllMagasinsMail(state) {
@@ -6014,6 +6124,7 @@ function openMgrMenu() {
   if (aAcces('plv'))        items.push({icon:'🛒', label:'Commande PLV', screen:'screen-plv'});
   if (aAcces('anomalie'))   items.push({icon:'🚩', label:'Report anomalie', screen:'screen-anomalie'});
   if (aAcces('outils'))     items.push({icon:'🔗', label:'Mes outils', screen:'screen-outils'});
+  if (aAcces('tableurs') && tableursVisibles().length) items.push({icon:'📑', label:'Tableurs', screen:'screen-tableurs'});
 
   // ── Configuration ──
   if (aAcces('questionnaires')) items.push({icon:'📝', label:'Questionnaires', screen:'screen-manager', cfg:true});
@@ -7784,7 +7895,7 @@ function handleAuthError(res) {
 // Les appels idempotents passes avec {queue:true} sont mis en file
 // d'attente hors ligne et rejoues automatiquement au retour du reseau.
 // ══════════════════════════════════════════════════════════
-var QUEUEABLE_ACTIONS = ['syncAllPDV', 'updatePDVComment', 'upsertFormation', 'deleteFormation', 'syncConfig', 'upsertSession', 'savePlvCommande', 'saveTable'];
+var QUEUEABLE_ACTIONS = ['syncAllPDV', 'updatePDVComment', 'upsertFormation', 'deleteFormation', 'syncConfig', 'upsertSession', 'savePlvCommande', 'saveTable', 'updatePDVEmail'];
 
 // Le jeton de session est ajoute ici, une fois pour toutes : aucune action
 // n'a besoin d'y penser. 'login' est la seule exception (il n'en a pas encore).
@@ -7920,7 +8031,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.1.0-beta';
+var APP_VERSION = 'v5.2.0-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -8516,7 +8627,11 @@ db.quizzes = data.quizzes.filter(function(q) {
       var key = (srv.enseigne || '') + '||' + (srv.name || '');
       var loc = localByKey[key];
       // si le serveur renvoie un email vide mais qu'on en a un en local, on garde le local
-      if (loc && loc.email && !srv.email) srv.email = loc.email;
+      var srvEmail = srv.email || '';
+      if (loc && loc.email && (!srvEmail || loc._emailPending)) {
+        srv.email = loc.email;
+        if (loc._emailPending && srvEmail !== loc.email) srv._emailPending = true;
+      }
       return srv;
     });
   }
@@ -8566,7 +8681,7 @@ if (data.offresITO) { db.offresITO = data.offresITO; recalculerEnseignesOffres()
  if (data.contactsMail) db.contactsMail = data.contactsMail;
   // Configuration client (v5) : null = onglet absent du Sheet → valeurs du client (APP_CONFIG)
   if (data.parametres !== undefined) db.parametres = (data.parametres && typeof data.parametres === 'object') ? data.parametres : null;
-  ['typologies', 'outils', 'messages'].forEach(function(k) { if (data[k] !== undefined) db[k] = Array.isArray(data[k]) ? data[k] : null; });
+  ['typologies', 'outils', 'messages', 'tableurs'].forEach(function(k) { if (data[k] !== undefined) db[k] = Array.isArray(data[k]) ? data[k] : null; });
   appliquerConfigClient();
   // Rôles personnalisés : rangés dans la ligne offresITO de l'onglet Config (aucun Apps Script à modifier)
   if (data.offresITO && Array.isArray(data.offresITO._rolesPerso)) db.rolesPerso = data.offresITO._rolesPerso;
@@ -9365,6 +9480,7 @@ var ACCES = [
   { k:'plv',            lbl:'Commande PLV',             g:'Terrain' },
   { k:'anomalie',       lbl:'Report anomalie',          g:'Terrain' },
   { k:'outils',         lbl:'Mes outils',               g:'Terrain' },
+  { k:'tableurs',       lbl:'Tableurs à compléter',     g:'Terrain' },
   { k:'sync',           lbl:'Synchronisation',          g:'Terrain' },
   { k:'dashmgr',        lbl:'Dashboard réseau + tous les rapports', g:'Pilotage' },
   { k:'quizdetail',     lbl:'Détail des quiz',          g:'Pilotage' },
@@ -9377,7 +9493,7 @@ var ACCES = [
   { k:'plvadmin',       lbl:'Gestion PLV',              g:'Gestion' }
 ];
 // Ce que tout le monde a, puis ce qu'apporte chaque rôle de base (identique à avant)
-var ACCES_TOUS = ['promo','formation','rapports','anomalie','outils','sync'];
+var ACCES_TOUS = ['promo','formation','rapports','anomalie','outils','tableurs','sync'];
 var ACCES_ROLES = {
   admin:     ['quiz','dashmgr','magasins','ito','plv','templates','plvadmin','creerquiz','itoedit'],
   cds:       ['quiz','dashcds','magasins','ito','plv'],
@@ -9444,6 +9560,7 @@ var TUILES = [
   { k:'enseignes', ic:'&#11088;',  lbl:'Mes enseignes',         go:"goTo('screen-referent-rapports')", c:['#E7A33C','#C27A12'] },
   { k:'anomalie',  ic:'&#128681;', lbl:'Report anomalie',       go:"goTo('screen-anomalie')",          c:['#C9364F','#8E1B30'] },
   { k:'outils',    ic:'&#128279;', lbl:'Mes outils',            go:"goTo('screen-outils')",            c:['#6B7685','#495260'] },
+  { k:'tableurs',  ic:'&#128209;', lbl:'Tableurs',              go:"goTo('screen-tableurs')",          c:['#2E8B57','#1D5E3A'] },
   { k:'sync',      ic:'&#128260;', lbl:'Synchronisation',       go:"goTo('screen-sync-center')",       c:['#6B7685','#495260'] }
 ];
 
@@ -9451,18 +9568,19 @@ function libelleTuile(t) { return t.lib ? escHtml(P(t.lib)) : t.lbl; }
 function tuileAutorisee(t) {
   if (t.k === 'ito' && !ITO_ENSEIGNES.length) return false;   // aucune typologie « offres »
   if (t.k === 'outils' && !liensVisibles().length) return false;
+  if (t.k === 'tableurs' && !tableursVisibles().length) return false;
   return aAcces(t.k);
 }
 
 // Accueil d'origine (tant que la personne n'a rien personnalisé)
 function tuilesParDefaut() {
   var base = null;
-  if (hasRole('manager') || hasRole('admin')) base = ['promo','formation','quiz','rapports','magasins','ito','templates','anomalie','outils'];
-  else if (hasRole('cds')) base = ['quiz','dashcds','rapports','magasins','promo','ito','formation','anomalie','outils'];
-  else if (hasRole('formateur')) base = ['formateur','rapports','promo','anomalie','outils'];
-  else if (hasRole('referent')) base = ['enseignes','rapports','promo','templates','anomalie','outils'];
+  if (hasRole('manager') || hasRole('admin')) base = ['promo','formation','quiz','rapports','magasins','ito','templates','anomalie','outils','tableurs'];
+  else if (hasRole('cds')) base = ['quiz','dashcds','rapports','magasins','promo','ito','formation','anomalie','outils','tableurs'];
+  else if (hasRole('formateur')) base = ['formateur','rapports','promo','anomalie','outils','tableurs'];
+  else if (hasRole('referent')) base = ['enseignes','rapports','promo','templates','anomalie','outils','tableurs'];
   var aRolePerso = (currentAccount.roles || []).some(function(r) { return String(r).indexOf('rp_') === 0 || roleBaseModifie(r); });
-  if (!aRolePerso || hasRole('manager')) return base || ['rapports','promo','anomalie','outils'];
+  if (!aRolePerso || hasRole('manager')) return base || ['rapports','promo','anomalie','outils','tableurs'];
   // Rôle perso : on part de l'accueil de base, puis on ajoute les tuiles que le rôle ouvre
   var liste = (base || []).slice();
   TUILES.forEach(function(t) { if (t.k !== 'sync' && liste.indexOf(t.k) === -1 && tuileAutorisee(t)) liste.push(t.k); });
