@@ -2352,8 +2352,7 @@ function renderTableurs() {
 // réexporte le tout en Excel.
 // ══════════════════════════════════════════════════════════════════════
 var _tabCourant = null;
-var _tabFiltre = { onglet: '', q: '' };
-var TAB_MAX_CARTES = 60;
+var _tabFiltre = { onglet: '', q: '', statut: '', cols: {}, tri: '', ouvert: -1, page: 40, panneau: false };
 
 function tableurStructure(id) { return (db.tableursStructures || {})[id] || null; }
 function tabCacheKey(id) { return PFX + 'tab_' + id; }
@@ -2372,7 +2371,7 @@ function ouvrirTableurSaisie(id) {
   var t = tableursVisibles().filter(function(x) { return x.id === id; })[0];
   if (!t) return;
   _tabCourant = { id: id, t: t, structure: tableurStructure(id), colonnes: [], lignes: [], charge: false, etat: '' };
-  _tabFiltre = { onglet: '', q: '' };
+  _tabFiltre = { onglet: '', q: '', statut: '', cols: {}, tri: '', ouvert: -1, page: 40, panneau: false };
   try {
     var c = JSON.parse(localStorage.getItem(tabCacheKey(id)) || 'null');
     if (c && c.lignes) { _tabCourant.colonnes = c.colonnes || []; _tabCourant.lignes = c.lignes; if (c.structure) _tabCourant.structure = c.structure; _tabCourant.charge = true; }
@@ -2394,7 +2393,7 @@ function chargerTableur() {
   apiPostJSON({ action: 'tableurLire', id: tc.id }).then(function(res) {
     if (_tabCourant !== tc) return;
     if (!res || res.status !== 'ok') { tc.etat = '⚠️ ' + ((res && res.message) || 'Lecture impossible'); renderTableurSaisie(); return; }
-    tc.structure = res.structure; tc.colonnes = res.colonnes || []; tc.lignes = res.lignes || []; tc.charge = true; tc.etat = '';
+    tc.structure = res.structure; tc.colonnes = res.colonnes || []; tc.lignes = res.lignes || []; tc.charge = true; tc.etat = ''; tc._dist = null;
     if (!db.tableursStructures) db.tableursStructures = {};
     db.tableursStructures[tc.id] = res.structure;
     var att = tabAttente();
@@ -2420,15 +2419,63 @@ function chargerTableur() {
 
 function tabColsSaisie(st) { return (st && st.colonnes || []).filter(function(c) { return c.saisie; }); }
 function tabColsInfo(st) { return (st && st.colonnes || []).filter(function(c) { return c.afficher && !c.saisie; }); }
+function tabVide(v) { return v === '' || v === null || v === undefined; }
+function tabNorm(s) { return String(s === null || s === undefined ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function tabColTitre(st) {
+  var c = (st && st.colonnes) || [];
+  var t = c.filter(function(x) { return x.titre; })[0] || c.filter(function(x) { return x.afficher && !x.saisie; })[0] || c[0];
+  return t ? t.nom : '';
+}
+function tabColsResume(st, titre) {
+  var c = (st && st.colonnes) || [];
+  if (c.some(function(x) { return 'resume' in x; })) return c.filter(function(x) { return x.resume && x.nom !== titre; }).map(function(x) { return x.nom; });
+  return c.filter(function(x) { return x.afficher && !x.saisie && x.nom !== titre; }).slice(0, 2).map(function(x) { return x.nom; });
+}
+
+// Prépare une fois par chargement : texte de recherche, valeurs distinctes (filtres, suggestions)
+function tabPreparer(tc) {
+  var st = tc.structure || {}, cols = st.colonnes || [], dist = {};
+  cols.forEach(function(c) { dist[c.nom] = {}; });
+  tc.lignes.forEach(function(l) {
+    l._txt = tabNorm(l.onglet + ' ' + l.secteur + ' ' + cols.map(function(c) { return l.v[c.nom]; }).join(' ') + ' ' + (l.commentaire || ''));
+    cols.forEach(function(c) { var v = l.v[c.nom]; if (!tabVide(v)) dist[c.nom][String(v)] = (dist[c.nom][String(v)] || 0) + 1; });
+  });
+  tc._dist = {};
+  Object.keys(dist).forEach(function(k) { tc._dist[k] = Object.keys(dist[k]).sort(function(a, b) { return a.localeCompare(b, 'fr', { numeric: true }); }); });
+  // Colonnes proposées en filtre : peu de valeurs différentes, mais au moins 2
+  // (≤ 12 valeurs, ou 1 seule valeur + des cases vides ; champs à saisir en premier ; 6 au plus)
+  var titreF = tabColTitre(st);
+  tc._filtres = cols.filter(function(c) {
+    var n = tc._dist[c.nom].length, vides = tc.lignes.some(function(l) { return tabVide(l.v[c.nom]); });
+    return c.nom !== titreF && (c.afficher || c.saisie || c.resume) && n <= 12 && (n >= 2 || (n === 1 && vides)) && n < Math.max(3, tc.lignes.length * 0.7);
+  }).sort(function(a, b) { return (b.saisie ? 1 : 0) - (a.saisie ? 1 : 0); }).slice(0, 6).map(function(c) { return c.nom; });
+  // Champs à compléter : suggestions si peu de valeurs texte
+  tc._sugg = {};
+  tabColsSaisie(st).forEach(function(c) {
+    var d = tc._dist[c.nom];
+    if (d.length && d.length <= 12 && !d.every(tabEstNombre)) tc._sugg[c.nom] = d;
+  });
+}
 
 function tabLignesFiltrees(tc) {
-  var q = _tabFiltre.q.trim().toLowerCase();
-  return tc.lignes.map(function(l, i) { return { l: l, i: i }; }).filter(function(o) {
-    if (_tabFiltre.onglet && o.l.onglet !== _tabFiltre.onglet) return false;
-    if (!q) return true;
-    var txt = (o.l.onglet + ' ' + o.l.secteur + ' ' + Object.keys(o.l.v).map(function(k) { return o.l.v[k]; }).join(' ') + ' ' + (o.l.commentaire || '')).toLowerCase();
-    return txt.indexOf(q) > -1;
+  var f = _tabFiltre, q = tabNorm(f.q).trim(), titre = tabColTitre(tc.structure);
+  var out = [];
+  tc.lignes.forEach(function(l, i) {
+    if (f.onglet && l.onglet !== f.onglet) return;
+    if (f.statut === 'afaire' && l.le) return;
+    if (f.statut === 'faites' && !l.le) return;
+    for (var k in f.cols) {
+      var w = f.cols[k];
+      if (w === '' || w === undefined) continue;
+      var v = tabVide(l.v[k]) ? '' : String(l.v[k]);
+      if (w === '__vide' ? v !== '' : v !== w) return;
+    }
+    if (q && (l._txt || '').indexOf(q) === -1) return;
+    out.push({ l: l, i: i });
   });
+  if (f.tri === 'az') out.sort(function(a, b) { return String(a.l.v[titre] || '').localeCompare(String(b.l.v[titre] || ''), 'fr', { numeric: true }); });
+  if (f.tri === 'afaire') out.sort(function(a, b) { return (a.l.le ? 1 : 0) - (b.l.le ? 1 : 0) || a.i - b.i; });
+  return out;
 }
 
 function renderTableurSaisie() {
@@ -2437,83 +2484,190 @@ function renderTableurSaisie() {
   if (!tc || !c) return;
   var ttl = document.getElementById('tableur-saisie-titre');
   if (ttl) ttl.textContent = tc.t.titre;
-  var st = tc.structure, gere = hasRole('manager');
+  var st = tc.structure, gere = hasRole('manager'), f = _tabFiltre;
   var h = '';
-  if (tc.t.consigne) h += '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:10px;line-height:1.5;white-space:pre-line">' + tEsc(tc.t.consigne) + '</div>';
   var btns = [];
-  if (tc.t.url) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirTableur(\'' + tEsc(tc.id) + '\')">↗ Fichier d\'origine</button>');
-  if (gere) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirImportTableur(\'' + tEsc(tc.id) + '\')">📥 ' + (st ? 'Réimporter' : 'Importer') + ' l\'Excel</button>');
-  if (st && (gere || hasRole('admin'))) btns.push('<button class="btn btn-secondary btn-sm" onclick="exporterTableur()">📤 Exporter en Excel</button>');
-  if (btns.length) h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">' + btns.join('') + '</div>';
+  if (tc.t.consigne) btns.push('<button class="btn btn-secondary btn-sm" onclick="var e=document.getElementById(\'tab-consigne\');e.style.display=e.style.display===\'none\'?\'block\':\'none\'">ℹ️ Consigne</button>');
+  if (tc.t.url) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirTableur(\'' + tEsc(tc.id) + '\')">↗ Fichier</button>');
+  if (gere) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirImportTableur(\'' + tEsc(tc.id) + '\')">📥 ' + (st ? 'Réimporter' : 'Importer') + '</button>');
+  if (st && (gere || hasRole('admin'))) btns.push('<button class="btn btn-secondary btn-sm" onclick="exporterTableur()">📤 Exporter</button>');
+  if (btns.length) h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' + btns.join('') + '</div>';
+  if (tc.t.consigne) h += '<div id="tab-consigne" style="display:' + (tc.lignes.some(function(l) { return l.le; }) ? 'none' : 'block') + ';font-size:12px;color:var(--dark-gray);background:var(--white);border-radius:10px;padding:10px 12px;margin-bottom:10px;line-height:1.5;white-space:pre-line">' + tEsc(tc.t.consigne) + '</div>';
   if (!st) {
     c.innerHTML = h + '<div class="empty-state"><div class="empty-state-icon">📑</div><div class="empty-state-title">Saisie non activée</div>' +
       '<div class="empty-state-sub">' + (gere ? 'Importez le fichier Excel pour que les équipes le complètent dans l\'appli.' : 'Ce tableur se complète dans le fichier d\'origine.') + '</div></div>';
     return;
   }
-  if (tc.etat) h += '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:10px">' + tEsc(tc.etat) + '</div>';
-  var faites = tc.lignes.filter(function(l) { return l.le; }).length;
-  if (tc.lignes.length) {
-    var pct = Math.round(100 * faites / tc.lignes.length);
-    h += '<div id="tab-prog-txt" style="font-size:12px;font-weight:600;margin-bottom:4px">' + faites + ' / ' + tc.lignes.length + ' ligne(s) complétée(s)</div>' +
-      '<div style="height:6px;background:var(--beige);border-radius:3px;margin-bottom:12px;overflow:hidden"><div id="tab-prog-bar" style="height:100%;width:' + pct + '%;background:#2E8B57"></div></div>';
-  }
-  var onglets = [];
-  tc.lignes.forEach(function(l) { if (onglets.indexOf(l.onglet) === -1) onglets.push(l.onglet); });
-  if (onglets.length > 1) {
-    h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
-      ['' ].concat(onglets).map(function(o) {
-        var on = _tabFiltre.onglet === o;
-        return '<button class="btn btn-sm ' + (on ? 'btn-primary' : 'btn-secondary') + '" data-onglet="' + tEsc(o) + '" onclick="_tabFiltre.onglet=this.dataset.onglet;renderTableurSaisie()">' + (o ? tEsc(o) : 'Tous') + '</button>';
-      }).join('') + '</div>';
-  }
-  if (tc.lignes.length > 8) h += '<input class="form-input" id="tab-saisie-q" placeholder="🔍 Rechercher…" value="' + tEsc(_tabFiltre.q) + '" oninput="_tabFiltre.q=this.value;renderTabCartes()" style="margin-bottom:12px" />';
-  h += '<div id="tab-saisie-cartes"></div>';
+  if (tc.etat) h += '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:8px">' + tEsc(tc.etat) + '</div>';
+  if (!tc._dist) tabPreparer(tc);
+  h += '<div id="tab-prog"></div>';
+  // Barre d'outils collante : recherche + statut + filtres
+  h += '<div style="position:sticky;top:0;z-index:5;background:var(--light-gray);padding:6px 0 8px;margin:0 -2px">' +
+    '<div style="display:flex;gap:6px">' +
+      '<input class="form-input" id="tab-saisie-q" type="search" placeholder="🔍 Rechercher…" value="' + tEsc(f.q) + '" oninput="tabRecherche(this.value)" style="flex:1;margin:0" />' +
+      '<button class="btn btn-sm ' + (f.panneau ? 'btn-primary' : 'btn-secondary') + '" id="tab-btn-filtres" onclick="_tabFiltre.panneau=!_tabFiltre.panneau;renderTableurSaisie()" style="white-space:nowrap">⚙️ Filtres<span id="tab-nb-filtres"></span></button>' +
+    '</div>' +
+    '<div id="tab-statuts" style="display:flex;gap:6px;margin-top:8px"></div>' +
+  '</div>';
+  if (f.panneau) h += tabPanneauFiltres(tc);
+  h += '<div id="tab-nb-res" style="font-size:11px;color:var(--dark-gray);margin:2px 0 6px"></div><div id="tab-liste"></div>';
+  h += Object.keys(tc._sugg || {}).map(function(k) {
+    var ci = (st.colonnes || []).map(function(c) { return c.nom; }).indexOf(k);
+    return '<datalist id="tabdl-' + ci + '">' + tc._sugg[k].map(function(v) { return '<option value="' + tEsc(v) + '">'; }).join('') + '</datalist>';
+  }).join('');
   c.innerHTML = h;
-  renderTabCartes();
+  tabMajEntete();
+  renderTabListe();
 }
 
-function renderTabCartes() {
-  var tc = _tabCourant, box = document.getElementById('tab-saisie-cartes');
+function tabPanneauFiltres(tc) {
+  var f = _tabFiltre, st = tc.structure, sel = function(lbl, attr, opts, val) {
+    return '<label style="display:block;font-size:11px;color:var(--dark-gray);margin-bottom:8px">' + tEsc(lbl) +
+      '<select class="form-select" ' + attr + ' style="margin-top:3px;font-size:13px;padding:7px 9px">' +
+      opts.map(function(o) { return '<option value="' + tEsc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + tEsc(o[1]) + '</option>'; }).join('') + '</select></label>';
+  };
+  var h = '<div class="stat-card full" style="padding:12px;margin-bottom:10px">';
+  var onglets = [];
+  tc.lignes.forEach(function(l) { if (onglets.indexOf(l.onglet) === -1) onglets.push(l.onglet); });
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:0 10px">';
+  if (onglets.length > 1) h += sel('Onglet', 'onchange="_tabFiltre.onglet=this.value;tabFiltreChange()"', [['', 'Tous']].concat(onglets.map(function(o) { return [o, o]; })), f.onglet);
+  h += sel('Trier', 'onchange="_tabFiltre.tri=this.value;tabFiltreChange()"', [['', 'Ordre du fichier'], ['az', 'Titre A → Z'], ['afaire', 'À faire d\'abord']], f.tri);
+  (tc._filtres || []).forEach(function(nom) {
+    var vides = tc.lignes.some(function(l) { return tabVide(l.v[nom]); });
+    var opts = [['', 'Tous']].concat(tc._dist[nom].map(function(v) { return [v, v]; }));
+    if (vides) opts.push(['__vide', '(vide)']);
+    h += sel(nom, 'data-col="' + tEsc(nom) + '" onchange="_tabFiltre.cols[this.dataset.col]=this.value;tabFiltreChange()"', opts, f.cols[nom] || '');
+  });
+  h += '</div><button class="btn btn-secondary btn-sm" onclick="tabReinitFiltres()">Réinitialiser</button></div>';
+  return h;
+}
+
+function tabRecherche(v) {
+  clearTimeout(tabRecherche._t);
+  tabRecherche._t = setTimeout(function() { _tabFiltre.q = v; _tabFiltre.page = 40; _tabFiltre.ouvert = -1; renderTabListe(); }, 180);
+}
+function tabFiltreChange() { _tabFiltre.page = 40; _tabFiltre.ouvert = -1; tabMajEntete(); renderTabListe(); }
+function tabReinitFiltres() { _tabFiltre.onglet = ''; _tabFiltre.cols = {}; _tabFiltre.tri = ''; _tabFiltre.statut = ''; _tabFiltre.q = ''; _tabFiltre.page = 40; _tabFiltre.ouvert = -1; renderTableurSaisie(); }
+
+// Progression, boutons de statut et nombre de filtres actifs (sans tout redessiner)
+function tabMajEntete() {
+  var tc = _tabCourant, f = _tabFiltre;
+  if (!tc) return;
+  var tot = tc.lignes.length, faites = tc.lignes.filter(function(l) { return l.le; }).length;
+  var p = document.getElementById('tab-prog');
+  if (p && tot) p.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:4px"><span>' + faites + ' / ' + tot + ' complétée(s)</span><span>' + Math.round(100 * faites / tot) + '%</span></div>' +
+    '<div style="height:6px;background:var(--beige);border-radius:3px;margin-bottom:6px;overflow:hidden"><div style="height:100%;width:' + Math.round(100 * faites / tot) + '%;background:#2E8B57;transition:width .3s"></div></div>';
+  var s = document.getElementById('tab-statuts');
+  if (s) s.innerHTML = [['', 'Toutes', tot], ['afaire', 'À faire', tot - faites], ['faites', 'Faites', faites]].map(function(b) {
+    var on = f.statut === b[0];
+    return '<button class="btn btn-sm ' + (on ? 'btn-primary' : 'btn-secondary') + '" style="flex:1;padding:6px 4px" onclick="_tabFiltre.statut=\'' + b[0] + '\';tabFiltreChange()">' + b[1] + ' <b>' + b[2] + '</b></button>';
+  }).join('');
+  var n = (f.onglet ? 1 : 0) + Object.keys(f.cols).filter(function(k) { return f.cols[k]; }).length;
+  var nb = document.getElementById('tab-nb-filtres');
+  if (nb) nb.textContent = n ? ' (' + n + ')' : '';
+}
+
+function tabLigneHtml(o, ctx) {
+  var l = o.l, i = o.i, ouvert = _tabFiltre.ouvert === i;
+  var sous = ctx.resume.map(function(k) { return l.v[k]; }).filter(function(v) { return !tabVide(v); }).join(' · ');
+  if (ctx.plusieurs && !_tabFiltre.onglet) sous = l.onglet + (sous ? ' · ' + sous : '');
+  var dot = l._attente ? '#C27A12' : l.le ? '#2E8B57' : 'var(--mid-gray)';
+  return '<div class="stat-card full" id="tabr-' + i + '" style="padding:0;margin-bottom:8px;overflow:hidden;' + (ouvert ? 'box-shadow:0 0 0 2px #2E8B57,var(--shadow)' : '') + '">' +
+    '<div onclick="tabBasculer(' + i + ')" style="display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer">' +
+      '<span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:' + dot + '"></span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + tEsc(tabVide(l.v[ctx.titre]) ? '—' : l.v[ctx.titre]) + '</div>' +
+        (sous ? '<div style="font-size:11px;color:var(--dark-gray);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px">' + tEsc(sous) + '</div>' : '') +
+      '</div>' +
+      (l.commentaire ? '<span title="Commentaire" style="font-size:13px">💬</span>' : '') +
+      '<span style="color:var(--dark-gray);font-size:16px;transition:transform .2s;transform:rotate(' + (ouvert ? '90' : '0') + 'deg)">›</span>' +
+    '</div>' +
+    '<div id="tabb-' + i + '">' + (ouvert ? tabDetailHtml(i) : '') + '</div>' +
+  '</div>';
+}
+
+function renderTabListe() {
+  var tc = _tabCourant, box = document.getElementById('tab-liste');
   if (!tc || !box) return;
-  var st = tc.structure, saisie = tabColsSaisie(st), infos = tabColsInfo(st);
-  var titreCol = infos.length ? infos[0].nom : (saisie[0] && saisie[0].nom);
-  var autres = infos.filter(function(cc) { return cc.nom !== titreCol; });
-  var numerique = {};
-  saisie.forEach(function(cc) { numerique[cc.nom] = tc.lignes.every(function(l) { var v = l.v[cc.nom]; return v === '' || v === null || v === undefined || tabEstNombre(v); }); });
+  var st = tc.structure, f = _tabFiltre, titre = tabColTitre(st);
+  var ctx = { titre: titre, resume: tabColsResume(st, titre), plusieurs: tc.lignes.some(function(l) { return l.onglet !== (tc.lignes[0] || {}).onglet; }) };
   var liste = tabLignesFiltrees(tc);
-  if (!liste.length) { box.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">' + (tc.lignes.length ? 'Aucun résultat' : (tc.charge ? 'Aucune ligne pour votre secteur' : 'Chargement…')) + '</div></div>'; return; }
-  var plusieursOnglets = tc.lignes.some(function(l) { return l.onglet !== tc.lignes[0].onglet; });
-  box.innerHTML = liste.slice(0, TAB_MAX_CARTES).map(function(o) {
-    var l = o.l, i = o.i;
-    var h = '<div class="stat-card full mb-8" id="tabl-' + i + '" style="text-align:left">' +
-      '<div style="font-size:14px;font-weight:700;margin-bottom:2px">' + tEsc(l.v[titreCol] !== undefined && l.v[titreCol] !== '' ? l.v[titreCol] : '—') + '</div>' +
-      (plusieursOnglets ? '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px">' + tEsc(l.onglet) + '</div>' : '');
-    var infosTxt = autres.filter(function(cc) { var v = l.v[cc.nom]; return v !== '' && v !== null && v !== undefined; }).map(function(cc) {
-      return '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;border-bottom:1px solid var(--beige)"><span style="color:var(--dark-gray)">' + tEsc(cc.nom) + '</span><span style="font-weight:600;text-align:right">' + tEsc(l.v[cc.nom]) + '</span></div>';
-    }).join('');
-    if (infosTxt) h += '<div style="margin:6px 0 10px">' + infosTxt + '</div>';
-    if (saisie.length) {
-      h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:6px">' + saisie.map(function(cc) {
-        var ci = (st.colonnes || []).indexOf(cc);
-        return '<label style="font-size:11px;color:var(--dark-gray);display:block">' + tEsc(cc.nom) +
-          '<input class="form-input" data-ci="' + ci + '" value="' + tEsc(l.v[cc.nom]) + '"' + (numerique[cc.nom] ? ' inputmode="decimal"' : '') +
-          ' oninput="tabModifiee(' + i + ')" style="margin-top:3px;font-size:13px;padding:7px 9px" /></label>';
+  var nr = document.getElementById('tab-nb-res');
+  if (nr) nr.textContent = tc.lignes.length ? liste.length + ' ligne(s)' + (liste.length !== tc.lignes.length ? ' sur ' + tc.lignes.length : '') : '';
+  if (!liste.length) {
+    box.innerHTML = '<div class="empty-state"><div class="empty-state-icon">' + (tc.lignes.length ? '🔍' : '📭') + '</div><div class="empty-state-title">' +
+      (tc.lignes.length ? 'Aucune ligne ne correspond' : (tc.charge ? 'Aucune ligne pour votre secteur' : 'Chargement…')) + '</div>' +
+      (tc.lignes.length ? '<button class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="tabReinitFiltres()">Réinitialiser les filtres</button>' : '') + '</div>';
+    return;
+  }
+  var page = liste.slice(0, f.page);
+  box.innerHTML = page.map(function(o) { return tabLigneHtml(o, ctx); }).join('') +
+    (liste.length > f.page ? '<button class="btn btn-secondary" id="tab-plus" style="width:100%;margin:4px 0 20px" onclick="_tabFiltre.page+=40;renderTabListe()">Afficher plus (' + (liste.length - f.page) + ' restantes)</button>' : '');
+  // Chargement automatique en bas de liste
+  var plus = document.getElementById('tab-plus');
+  if (plus && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function(en) { if (en[0].isIntersecting) { io.disconnect(); _tabFiltre.page += 40; renderTabListe(); } }, { rootMargin: '200px' });
+    io.observe(plus);
+  }
+}
+
+function tabBasculer(i) {
+  var f = _tabFiltre, ancien = f.ouvert;
+  f.ouvert = ancien === i ? -1 : i;
+  if (ancien > -1) {
+    var b0 = document.getElementById('tabb-' + ancien), r0 = document.getElementById('tabr-' + ancien);
+    if (b0) b0.innerHTML = '';
+    if (r0) { r0.style.boxShadow = ''; var ch0 = r0.firstChild.lastChild; if (ch0) ch0.style.transform = 'rotate(0deg)'; }
+  }
+  if (f.ouvert > -1) {
+    var b = document.getElementById('tabb-' + i), r = document.getElementById('tabr-' + i);
+    if (b) b.innerHTML = tabDetailHtml(i);
+    if (r) {
+      r.style.boxShadow = '0 0 0 2px #2E8B57,var(--shadow)';
+      var ch = r.firstChild.lastChild; if (ch) ch.style.transform = 'rotate(90deg)';
+      setTimeout(function() { try { r.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {} }, 30);
+    }
+  }
+}
+
+function tabDetailHtml(i) {
+  var tc = _tabCourant, l = tc.lignes[i], st = tc.structure, cols = st.colonnes || [];
+  var titre = tabColTitre(st), saisie = tabColsSaisie(st);
+  var h = '<div style="padding:0 14px 14px;border-top:1px solid var(--beige)">';
+  var infos = tabColsInfo(st).filter(function(c) { return c.nom !== titre && !tabVide(l.v[c.nom]); });
+  if (infos.length || l.onglet) {
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px 12px;padding:10px 0">' +
+      (tc.lignes.some(function(x) { return x.onglet !== l.onglet; }) ? '<div><div style="font-size:10px;color:var(--dark-gray);text-transform:uppercase;letter-spacing:.03em">Onglet</div><div style="font-size:12px;font-weight:600">' + tEsc(l.onglet) + '</div></div>' : '') +
+      infos.map(function(c) {
+        return '<div style="min-width:0"><div style="font-size:10px;color:var(--dark-gray);text-transform:uppercase;letter-spacing:.03em">' + tEsc(c.nom) + '</div>' +
+          '<div style="font-size:12px;font-weight:600;word-break:break-word">' + tEsc(l.v[c.nom]) + '</div></div>';
       }).join('') + '</div>';
-    }
-    if (st.commentaire) {
-      h += '<textarea class="form-input" data-com="1" rows="2" placeholder="' + tEsc(st.libelleCommentaire || 'Commentaire') + '…" oninput="tabModifiee(' + i + ')" style="margin-top:8px;font-size:12px;resize:vertical">' + tEsc(l.commentaire) + '</textarea>';
-    }
-    h += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">' +
-      '<div id="tabl-pied-' + i + '" style="flex:1;font-size:11px;color:var(--dark-gray)">' + tabPied(l) + '</div>' +
-      '<button class="btn btn-primary btn-sm" id="tabl-btn-' + i + '" onclick="enregistrerLigneTableur(' + i + ')" disabled style="opacity:.45">Enregistrer</button>' +
-    '</div></div>';
-    return h;
-  }).join('') + (liste.length > TAB_MAX_CARTES ? '<div style="text-align:center;padding:12px;font-size:12px;color:var(--dark-gray)">+ ' + (liste.length - TAB_MAX_CARTES) + ' autres lignes — affinez la recherche</div>' : '');
+  }
+  if (saisie.length) {
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;padding-top:4px">' + saisie.map(function(c) {
+      var ci = cols.indexOf(c);
+      var num = tc.lignes.every(function(x) { return tabVide(x.v[c.nom]) || tabEstNombre(x.v[c.nom]); });
+      return '<label style="font-size:11px;font-weight:600;color:var(--charcoal);display:block">' + tEsc(c.nom) +
+        '<input class="form-input" data-ci="' + ci + '" value="' + tEsc(l.v[c.nom]) + '"' + (num ? ' inputmode="decimal"' : '') +
+        (tc._sugg && tc._sugg[c.nom] ? ' list="tabdl-' + ci + '"' : '') +
+        ' oninput="tabModifiee(' + i + ')" style="margin-top:3px;font-size:14px;padding:8px 10px" /></label>';
+    }).join('') + '</div>';
+  }
+  if (st.commentaire) {
+    h += '<label style="display:block;font-size:11px;font-weight:600;margin-top:10px">' + tEsc(st.libelleCommentaire || 'Commentaire') +
+      '<textarea class="form-input" data-com="1" rows="2" placeholder="Champ libre…" oninput="tabModifiee(' + i + ')" style="margin-top:3px;font-size:13px;resize:vertical">' + tEsc(l.commentaire) + '</textarea></label>';
+  }
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-top:10px">' +
+    '<div id="tabl-pied-' + i + '" style="flex:1;font-size:11px;color:var(--dark-gray)">' + tabPied(l) + '</div>' +
+    '<button class="btn btn-secondary btn-sm" onclick="tabBasculer(' + i + ')">Fermer</button>' +
+    '<button class="btn btn-primary btn-sm" id="tabl-btn-' + i + '" onclick="enregistrerLigneTableur(' + i + ')" disabled style="opacity:.45">Enregistrer</button>' +
+  '</div></div>';
+  return h;
 }
 
 function tabPied(l) {
   if (!l.le) return 'Pas encore complété';
-  return (l._attente ? '⏳ En attente d\'envoi · ' : '✅ ') + 'Modifié' + (l.par ? ' par ' + tEsc(l.par) : '') + ' le ' + tEsc(l.le);
+  return (l._attente ? '⏳ En attente d\'envoi · ' : '✅ ') + (l.par ? tEsc(l.par) + ' · ' : '') + tEsc(l.le);
 }
 
 function tabModifiee(i) {
@@ -2524,7 +2678,7 @@ function tabModifiee(i) {
 function enregistrerLigneTableur(i) {
   var tc = _tabCourant;
   if (!tc) return;
-  var l = tc.lignes[i], card = document.getElementById('tabl-' + i);
+  var l = tc.lignes[i], card = document.getElementById('tabb-' + i);
   if (!l || !card) return;
   var cols = tc.structure.colonnes || [], valeurs = {};
   card.querySelectorAll('[data-ci]').forEach(function(el) {
@@ -2540,20 +2694,27 @@ function enregistrerLigneTableur(i) {
   var cleAtt = tc.id + '|' + l.cle, att = tabAttente();
   att[cleAtt] = { valeurs: valeurs, commentaire: payload.commentaire, par: l.par, le: l.le };
   tabAttenteSet(att);
+  tabPreparer(tc);
   tabSauverCache(tc);
-  var b = document.getElementById('tabl-btn-' + i);
-  if (b) { b.disabled = true; b.style.opacity = '.45'; }
-  var pied = document.getElementById('tabl-pied-' + i);
-  if (pied) pied.innerHTML = tabPied(l);
-  var nb = tc.lignes.filter(function(x) { return x.le; }).length, pt = document.getElementById('tab-prog-txt'), pb = document.getElementById('tab-prog-bar');
-  if (pt) pt.textContent = nb + ' / ' + tc.lignes.length + ' ligne(s) complétée(s)';
-  if (pb) pb.style.width = Math.round(100 * nb / tc.lignes.length) + '%';
+  // Ligne suivante à faire ouverte automatiquement (saisie en série)
+  var liste = tabLignesFiltrees(tc), pos = -1;
+  liste.forEach(function(o, k) { if (o.i === i) pos = k; });
+  var suivante = liste.slice(pos + 1).concat(pos > -1 ? [] : liste).filter(function(o) { return !o.l.le; })[0];
+  _tabFiltre.ouvert = -1;
+  tabMajEntete();
+  renderTabListe();
+  if (suivante) tabBasculer(suivante.i);
   apiPost(payload, { queue: true }).then(function(ok) {
     if (ok) {
       var a2 = tabAttente(); delete a2[cleAtt]; tabAttenteSet(a2);
       l._attente = false; tabSauverCache(tc);
-      var p2 = document.getElementById('tabl-pied-' + i);
-      if (p2 && _tabCourant === tc) p2.innerHTML = tabPied(l);
+      if (_tabCourant === tc) {
+        var r = document.getElementById('tabr-' + i);
+        var dot = r && r.firstChild && r.firstChild.firstChild;
+        if (dot) dot.style.background = '#2E8B57';
+        var p2 = document.getElementById('tabl-pied-' + i);
+        if (p2) p2.innerHTML = tabPied(l);
+      }
     }
     showToast(ok ? '✅ Ligne enregistrée' : '📴 Enregistrée sur le téléphone — envoi à la reconnexion');
     try { logEvent('tableur-saisie', tc.t.titre); } catch (e) {}
@@ -2640,7 +2801,7 @@ function tabDevinerEntete(aoa) {
     var cells = aoa[i].filter(function(v) { return v !== ''; });
     if (cells.length < 2 || cells.some(tabEstNombre)) continue;
     var n = 0;
-    for (var j = i + 1; j < aoa.length && aoa[j][0] !== ''; j++) n++;
+    for (var j = i + 1; j < aoa.length && aoa[j].some(function(v) { return v !== ''; }); j++) n++;
     if (n > score) { score = n; meilleur = i; }
   }
   return meilleur;
@@ -2658,7 +2819,14 @@ function tabEnteteOnglet(nom) {
 }
 
 function tabEntetes(nom) {
-  var row = tabAoa(nom)[tabEnteteOnglet(nom)] || [], vus = {}, out = [];
+  var aoa = tabAoa(nom), e = tabEnteteOnglet(nom), row = (aoa[e] || []).slice(), vus = {}, out = [];
+  // Colonne sans titre mais avec des données : « Colonne D »
+  var larg = 0;
+  for (var r = e + 1; r < Math.min(aoa.length, e + 300); r++) larg = Math.max(larg, aoa[r].length);
+  for (var j = 0; j < larg; j++) {
+    if (row[j]) continue;
+    for (var r2 = e + 1; r2 < Math.min(aoa.length, e + 300); r2++) if (aoa[r2][j]) { row[j] = 'Colonne ' + XLSX.utils.encode_col(j); break; }
+  }
   row.forEach(function(v, j) {
     if (!v) return;
     var n = v, k = 2;
@@ -2672,9 +2840,8 @@ function tabEntetes(nom) {
 function tabLignesOnglet(nom) {
   var aoa = tabAoa(nom), e = tabEnteteOnglet(nom), hs = tabEntetes(nom), out = [];
   if (!hs.length) return out;
-  var j0 = hs[0].j;
   for (var i = e + 1; i < aoa.length; i++) {
-    if (!aoa[i][j0]) continue;
+    if (!hs.some(function(hh) { return aoa[i][hh.j]; })) continue;
     var o = {};
     hs.forEach(function(hh) { o[hh.nom] = aoa[i][hh.j] || ''; });
     out.push({ ligne: i + 1, v: o });
@@ -2688,11 +2855,21 @@ function tabRecalculerColonnes(defauts) {
   var noms = [];
   I.onglets.forEach(function(o) { tabEntetes(o).forEach(function(hh) { if (noms.indexOf(hh.nom) === -1) noms.push(hh.nom); }); });
   var ref = I.onglets[0], lignesRef = ref ? tabLignesOnglet(ref) : [];
+  var nbL = lignesRef.length || 1;
+  var rempli = function(n) { return lignesRef.filter(function(l) { return l.v[n]; }).length / nbL; };
   I.colonnes = noms.map(function(n, k) {
-    if (anciennes[n]) return { nom: n, afficher: anciennes[n].afficher, saisie: anciennes[n].saisie };
-    var vides = lignesRef.filter(function(l) { return !l.v[n]; }).length;
-    return { nom: n, afficher: true, saisie: k > 0 && lignesRef.length > 0 && vides / lignesRef.length >= 0.5 };
+    if (anciennes[n]) return { nom: n, afficher: anciennes[n].afficher, saisie: anciennes[n].saisie, titre: !!anciennes[n].titre, resume: !!anciennes[n].resume };
+    var r = rempli(n);
+    return { nom: n, afficher: r > 0, saisie: false, titre: false, resume: false };
   });
+  // Titre : 1re colonne remplie à 90 % ; résumé : les 2 suivantes bien remplies
+  if (!I.colonnes.some(function(c) { return c.titre; })) {
+    var t = I.colonnes.filter(function(c) { return !c.saisie && rempli(c.nom) >= 0.9; })[0] || I.colonnes[0];
+    if (t) { t.titre = true; t.afficher = true; }
+    if (!I.colonnes.some(function(c) { return c.resume; }))
+      I.colonnes.filter(function(c) { return !c.titre && !c.saisie && rempli(c.nom) >= 0.5 && (lignesRef.length < 2 || new Set(lignesRef.map(function(l) { return l.v[c.nom]; })).size > 1); })
+        .slice(0, 2).forEach(function(c) { c.resume = true; });
+  }
   if (!I.secteurSource || (I.secteurSource.indexOf('col:') === 0 && noms.indexOf(I.secteurSource.slice(4)) === -1)) {
     var colSect = noms.filter(function(n) { return /secteur/i.test(n); })[0];
     I.secteurSource = (I.ancien && I.ancien.secteurSource && defauts) ? I.ancien.secteurSource
@@ -2729,13 +2906,16 @@ function renderTabImport() {
       (on ? 'background:#2E8B57;color:#fff;font-weight:700' : 'background:var(--beige)') + '">' + (i + 1) + '. ' + (txt ? tEsc(txt) : '<i>(vide)</i>') + '</div>';
   }).join('');
 
+  var g = 'display:grid;grid-template-columns:1fr 42px 50px 52px 58px;gap:2px;align-items:center';
   h += sec('3. Colonnes') +
-    '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;font-size:11px;font-weight:700;color:var(--dark-gray);padding-bottom:4px"><span>Colonne</span><span style="text-align:center">Affichée</span><span style="text-align:center">À compléter</span></div>' +
+    '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px;line-height:1.45"><b>Titre</b> : nom de la ligne dans la liste · <b>Résumé</b> : infos visibles sans ouvrir la ligne · <b>Détail</b> : infos visibles en ouvrant la ligne · <b>À saisir</b> : champs que l\'équipe complète.</div>' +
+    '<div style="' + g + ';font-size:10px;font-weight:700;color:var(--dark-gray);padding-bottom:4px;text-align:center"><span style="text-align:left">Colonne</span><span>Titre</span><span>Résumé</span><span>Détail</span><span>À saisir</span></div>' +
     I.colonnes.map(function(col, k) {
-      return '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid var(--beige)">' +
-        '<span>' + tEsc(col.nom) + (k === 0 ? ' <span style="color:var(--dark-gray)">(titre)</span>' : '') + '</span>' +
-        '<span style="text-align:center"><input type="checkbox" ' + (col.afficher ? 'checked' : '') + ' onchange="_tabImp.colonnes[' + k + '].afficher=this.checked" /></span>' +
-        '<span style="text-align:center"><input type="checkbox" ' + (col.saisie ? 'checked' : '') + ' onchange="_tabImp.colonnes[' + k + '].saisie=this.checked" /></span></div>';
+      var cb = function(champ, extra) { return '<span style="text-align:center"><input type="checkbox" ' + (col[champ] ? 'checked' : '') + ' onchange="_tabImp.colonnes[' + k + '].' + champ + '=this.checked' + (extra || '') + '" /></span>'; };
+      return '<div style="' + g + ';font-size:12px;padding:5px 0;border-bottom:1px solid var(--beige)">' +
+        '<span style="word-break:break-word">' + tEsc(col.nom) + '</span>' +
+        '<span style="text-align:center"><input type="radio" name="tab-titre" ' + (col.titre ? 'checked' : '') + ' onchange="_tabImp.colonnes.forEach(function(c,x){c.titre=x===' + k + ';});_tabImp.colonnes[' + k + '].afficher=true;renderTabImport()" /></span>' +
+        cb('resume') + cb('afficher') + cb('saisie') + '</div>';
     }).join('');
 
   h += sec('4. Qui voit quelle ligne ?') +
@@ -8535,7 +8715,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.3.0-beta';
+var APP_VERSION = 'v5.4.0-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
