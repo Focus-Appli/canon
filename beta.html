@@ -1842,10 +1842,28 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   </div>
   <div class="content">
     <div style="font-size:12px;color:var(--dark-gray);margin-bottom:14px;line-height:1.5">
-      Touchez un tableur pour l'ouvrir dans Excel (application ou navigateur). Vos saisies sont enregistrées directement dans le fichier partagé.
+      Touchez un tableur pour le compléter. Ceux marqués « Saisie dans l'appli » se remplissent ici ; les autres s'ouvrent dans Excel.
     </div>
     <div id="tableurs-list"></div>
   </div>
+</div>
+
+<!-- TABLEUR — saisie dans l'appli -->
+<div class="screen" id="screen-tableur-saisie">
+  <div class="topbar">
+    <button class="topbar-back" onclick="goTo('screen-tableurs')">←</button>
+    <span class="topbar-title" id="tableur-saisie-titre">Tableur</span>
+  </div>
+  <div class="content" id="tableur-saisie-content"></div>
+</div>
+
+<!-- TABLEUR — import d'un fichier Excel (manager) -->
+<div class="screen" id="screen-tableur-import">
+  <div class="topbar">
+    <button class="topbar-back" onclick="goTo('screen-tableurs')">←</button>
+    <span class="topbar-title" id="tableur-import-titre">Importer un tableur</span>
+  </div>
+  <div class="content" id="tableur-import-content"></div>
 </div>
 
 <!-- MES OUTILS — acces aux autres applications -->
@@ -2269,7 +2287,7 @@ function tableursListe() {
     return { id: String(o.id || ('tab_' + i)), titre: String(o.titre || ''), sousTitre: String(o.sousTitre || ''), url: String(o.url || '').trim(),
       consigne: String(o.consigne || ''), echeance: String(o.echeance || '').slice(0, 10), roles: enListe(o.roles), secteurs: enListe(o.secteurs),
       ordre: Number(o.ordre) || 0, actif: enBool(o.actif, true) };
-  }).filter(function(o) { return o.titre && o.url && o.actif; }).sort(function(a, b) {
+  }).filter(function(o) { return o.titre && o.actif && (o.url || tableurStructure(o.id) || hasRole('manager')); }).sort(function(a, b) {
     return parOrdre(a, b) || String(a.echeance || '9999').localeCompare(String(b.echeance || '9999'));
   });
 }
@@ -2308,22 +2326,491 @@ function renderTableurs() {
     return;
   }
   c.innerHTML = l.map(function(t, i) {
-    return '<div class="quiz-card fade-up" style="animation-delay:' + (i * 0.04).toFixed(2) + 's;align-items:flex-start" onclick="ouvrirTableur(\'' + escHtml(t.id).replace(/'/g, "\\'") + '\')">' +
-      '<div class="quiz-card-icon">📑</div>' +
+    var idJs = escHtml(t.id).replace(/'/g, "\\'"), st = tableurStructure(t.id);
+    var action = st ? "ouvrirTableurSaisie('" + idJs + "')" : t.url ? "ouvrirTableur('" + idJs + "')" : "ouvrirImportTableur('" + idJs + "')";
+    return '<div class="quiz-card fade-up" style="animation-delay:' + (i * 0.04).toFixed(2) + 's;align-items:flex-start" onclick="' + action + '">' +
+      '<div class="quiz-card-icon">' + (st ? '✏️' : '📑') + '</div>' +
       '<div class="quiz-card-body">' +
         '<div class="quiz-card-title">' + escHtml(t.titre) + '</div>' +
         (t.sousTitre ? '<div class="quiz-card-meta">' + escHtml(t.sousTitre) + '</div>' : '') +
         (t.consigne ? '<div style="font-size:12px;color:var(--dark-gray);margin-top:6px;line-height:1.45;white-space:pre-line">' + escHtml(t.consigne) + '</div>' : '') +
         badgeEcheance(t.echeance) +
+        (st ? ' <span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;background:#2E8B57">Saisie dans l\'appli</span>' : '') +
+        (hasRole('manager') ? '<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();ouvrirImportTableur(\'' + idJs + '\')">📥 ' + (st ? 'Réimporter l\'Excel' : 'Saisie dans l\'appli : importer l\'Excel') + '</button></div>' : '') +
       '</div>' +
-      '<div class="quiz-card-arrow">↗</div>' +
+      '<div class="quiz-card-arrow">' + (st ? '›' : '↗') + '</div>' +
     '</div>';
   }).join('');
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// TABLEURS — SAISIE DANS L'APPLI (v5.3)
+// Le manager importe le fichier Excel (choix des onglets, de la ligne
+// d'en-tête, des colonnes affichées / à compléter, de l'origine du secteur).
+// Les lignes sont copiées dans le Google Sheet (onglet TAB_<id>) ; chaque CDS
+// complète celles de son secteur + un commentaire libre ; le manager
+// réexporte le tout en Excel.
+// ══════════════════════════════════════════════════════════════════════
+var _tabCourant = null;
+var _tabFiltre = { onglet: '', q: '' };
+var TAB_MAX_CARTES = 60;
+
+function tableurStructure(id) { return (db.tableursStructures || {})[id] || null; }
+function tabCacheKey(id) { return PFX + 'tab_' + id; }
+function tEsc(v) { return escHtml(v === null || v === undefined ? '' : String(v)); }
+function tabMaintenant() {
+  var d = new Date(), z = function(n) { return (n < 10 ? '0' : '') + n; };
+  return z(d.getDate()) + '/' + z(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+}
+function tabEstNombre(v) { return /^-?\d+([.,]\d+)?$/.test(String(v).trim()); }
+
+// ── Saisies faites hors connexion : réappliquées tant que le serveur ne les a pas
+function tabAttente() { try { return JSON.parse(localStorage.getItem(PFX + 'tab_attente') || '{}') || {}; } catch (e) { return {}; } }
+function tabAttenteSet(m) { try { localStorage.setItem(PFX + 'tab_attente', JSON.stringify(m)); } catch (e) {} }
+
+function ouvrirTableurSaisie(id) {
+  var t = tableursVisibles().filter(function(x) { return x.id === id; })[0];
+  if (!t) return;
+  _tabCourant = { id: id, t: t, structure: tableurStructure(id), colonnes: [], lignes: [], charge: false, etat: '' };
+  _tabFiltre = { onglet: '', q: '' };
+  try {
+    var c = JSON.parse(localStorage.getItem(tabCacheKey(id)) || 'null');
+    if (c && c.lignes) { _tabCourant.colonnes = c.colonnes || []; _tabCourant.lignes = c.lignes; if (c.structure) _tabCourant.structure = c.structure; _tabCourant.charge = true; }
+  } catch (e) {}
+  goTo('screen-tableur-saisie');
+  chargerTableur();
+}
+
+function tabSauverCache(tc) {
+  try { localStorage.setItem(tabCacheKey(tc.id), JSON.stringify({ structure: tc.structure, colonnes: tc.colonnes, lignes: tc.lignes, at: Date.now() })); } catch (e) {}
+}
+
+function chargerTableur() {
+  var tc = _tabCourant;
+  if (!tc) return;
+  if (!tc.structure) { tc.etat = ''; renderTableurSaisie(); return; }
+  if (!navigator.onLine) { tc.etat = tc.charge ? '📴 Hors connexion — dernière version enregistrée sur ce téléphone' : '📴 Connexion requise pour le premier chargement'; renderTableurSaisie(); return; }
+  tc.etat = '⏳ Chargement…'; renderTableurSaisie();
+  apiPostJSON({ action: 'tableurLire', id: tc.id }).then(function(res) {
+    if (_tabCourant !== tc) return;
+    if (!res || res.status !== 'ok') { tc.etat = '⚠️ ' + ((res && res.message) || 'Lecture impossible'); renderTableurSaisie(); return; }
+    tc.structure = res.structure; tc.colonnes = res.colonnes || []; tc.lignes = res.lignes || []; tc.charge = true; tc.etat = '';
+    if (!db.tableursStructures) db.tableursStructures = {};
+    db.tableursStructures[tc.id] = res.structure;
+    var att = tabAttente();
+    tc.lignes.forEach(function(l) {
+      var p = att[tc.id + '|' + l.cle];
+      if (!p) return;
+      var dejaRecu = Object.keys(p.valeurs || {}).every(function(k) { return String(l.v[k] === undefined ? '' : l.v[k]) === String(p.valeurs[k]); }) &&
+        (p.commentaire === undefined || String(l.commentaire || '') === String(p.commentaire));
+      if (dejaRecu) { delete att[tc.id + '|' + l.cle]; return; }
+      Object.keys(p.valeurs || {}).forEach(function(k) { l.v[k] = p.valeurs[k]; });
+      if (p.commentaire !== undefined) l.commentaire = p.commentaire;
+      l.par = p.par; l.le = p.le; l._attente = true;
+    });
+    tabAttenteSet(att);
+    tabSauverCache(tc);
+    renderTableurSaisie();
+  }).catch(function() {
+    if (_tabCourant !== tc) return;
+    tc.etat = tc.charge ? '⚠️ Réseau indisponible — dernière version enregistrée' : '⚠️ Réseau indisponible';
+    renderTableurSaisie();
+  });
+}
+
+function tabColsSaisie(st) { return (st && st.colonnes || []).filter(function(c) { return c.saisie; }); }
+function tabColsInfo(st) { return (st && st.colonnes || []).filter(function(c) { return c.afficher && !c.saisie; }); }
+
+function tabLignesFiltrees(tc) {
+  var q = _tabFiltre.q.trim().toLowerCase();
+  return tc.lignes.map(function(l, i) { return { l: l, i: i }; }).filter(function(o) {
+    if (_tabFiltre.onglet && o.l.onglet !== _tabFiltre.onglet) return false;
+    if (!q) return true;
+    var txt = (o.l.onglet + ' ' + o.l.secteur + ' ' + Object.keys(o.l.v).map(function(k) { return o.l.v[k]; }).join(' ') + ' ' + (o.l.commentaire || '')).toLowerCase();
+    return txt.indexOf(q) > -1;
+  });
+}
+
+function renderTableurSaisie() {
+  var tc = _tabCourant;
+  var c = document.getElementById('tableur-saisie-content');
+  if (!tc || !c) return;
+  var ttl = document.getElementById('tableur-saisie-titre');
+  if (ttl) ttl.textContent = tc.t.titre;
+  var st = tc.structure, gere = hasRole('manager');
+  var h = '';
+  if (tc.t.consigne) h += '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:10px;line-height:1.5;white-space:pre-line">' + tEsc(tc.t.consigne) + '</div>';
+  var btns = [];
+  if (tc.t.url) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirTableur(\'' + tEsc(tc.id) + '\')">↗ Fichier d\'origine</button>');
+  if (gere) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirImportTableur(\'' + tEsc(tc.id) + '\')">📥 ' + (st ? 'Réimporter' : 'Importer') + ' l\'Excel</button>');
+  if (st && (gere || hasRole('admin'))) btns.push('<button class="btn btn-secondary btn-sm" onclick="exporterTableur()">📤 Exporter en Excel</button>');
+  if (btns.length) h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">' + btns.join('') + '</div>';
+  if (!st) {
+    c.innerHTML = h + '<div class="empty-state"><div class="empty-state-icon">📑</div><div class="empty-state-title">Saisie non activée</div>' +
+      '<div class="empty-state-sub">' + (gere ? 'Importez le fichier Excel pour que les équipes le complètent dans l\'appli.' : 'Ce tableur se complète dans le fichier d\'origine.') + '</div></div>';
+    return;
+  }
+  if (tc.etat) h += '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:10px">' + tEsc(tc.etat) + '</div>';
+  var faites = tc.lignes.filter(function(l) { return l.le; }).length;
+  if (tc.lignes.length) {
+    var pct = Math.round(100 * faites / tc.lignes.length);
+    h += '<div id="tab-prog-txt" style="font-size:12px;font-weight:600;margin-bottom:4px">' + faites + ' / ' + tc.lignes.length + ' ligne(s) complétée(s)</div>' +
+      '<div style="height:6px;background:var(--beige);border-radius:3px;margin-bottom:12px;overflow:hidden"><div id="tab-prog-bar" style="height:100%;width:' + pct + '%;background:#2E8B57"></div></div>';
+  }
+  var onglets = [];
+  tc.lignes.forEach(function(l) { if (onglets.indexOf(l.onglet) === -1) onglets.push(l.onglet); });
+  if (onglets.length > 1) {
+    h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
+      ['' ].concat(onglets).map(function(o) {
+        var on = _tabFiltre.onglet === o;
+        return '<button class="btn btn-sm ' + (on ? 'btn-primary' : 'btn-secondary') + '" data-onglet="' + tEsc(o) + '" onclick="_tabFiltre.onglet=this.dataset.onglet;renderTableurSaisie()">' + (o ? tEsc(o) : 'Tous') + '</button>';
+      }).join('') + '</div>';
+  }
+  if (tc.lignes.length > 8) h += '<input class="form-input" id="tab-saisie-q" placeholder="🔍 Rechercher…" value="' + tEsc(_tabFiltre.q) + '" oninput="_tabFiltre.q=this.value;renderTabCartes()" style="margin-bottom:12px" />';
+  h += '<div id="tab-saisie-cartes"></div>';
+  c.innerHTML = h;
+  renderTabCartes();
+}
+
+function renderTabCartes() {
+  var tc = _tabCourant, box = document.getElementById('tab-saisie-cartes');
+  if (!tc || !box) return;
+  var st = tc.structure, saisie = tabColsSaisie(st), infos = tabColsInfo(st);
+  var titreCol = infos.length ? infos[0].nom : (saisie[0] && saisie[0].nom);
+  var autres = infos.filter(function(cc) { return cc.nom !== titreCol; });
+  var numerique = {};
+  saisie.forEach(function(cc) { numerique[cc.nom] = tc.lignes.every(function(l) { var v = l.v[cc.nom]; return v === '' || v === null || v === undefined || tabEstNombre(v); }); });
+  var liste = tabLignesFiltrees(tc);
+  if (!liste.length) { box.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">' + (tc.lignes.length ? 'Aucun résultat' : (tc.charge ? 'Aucune ligne pour votre secteur' : 'Chargement…')) + '</div></div>'; return; }
+  var plusieursOnglets = tc.lignes.some(function(l) { return l.onglet !== tc.lignes[0].onglet; });
+  box.innerHTML = liste.slice(0, TAB_MAX_CARTES).map(function(o) {
+    var l = o.l, i = o.i;
+    var h = '<div class="stat-card full mb-8" id="tabl-' + i + '" style="text-align:left">' +
+      '<div style="font-size:14px;font-weight:700;margin-bottom:2px">' + tEsc(l.v[titreCol] !== undefined && l.v[titreCol] !== '' ? l.v[titreCol] : '—') + '</div>' +
+      (plusieursOnglets ? '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px">' + tEsc(l.onglet) + '</div>' : '');
+    var infosTxt = autres.filter(function(cc) { var v = l.v[cc.nom]; return v !== '' && v !== null && v !== undefined; }).map(function(cc) {
+      return '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;border-bottom:1px solid var(--beige)"><span style="color:var(--dark-gray)">' + tEsc(cc.nom) + '</span><span style="font-weight:600;text-align:right">' + tEsc(l.v[cc.nom]) + '</span></div>';
+    }).join('');
+    if (infosTxt) h += '<div style="margin:6px 0 10px">' + infosTxt + '</div>';
+    if (saisie.length) {
+      h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:6px">' + saisie.map(function(cc) {
+        var ci = (st.colonnes || []).indexOf(cc);
+        return '<label style="font-size:11px;color:var(--dark-gray);display:block">' + tEsc(cc.nom) +
+          '<input class="form-input" data-ci="' + ci + '" value="' + tEsc(l.v[cc.nom]) + '"' + (numerique[cc.nom] ? ' inputmode="decimal"' : '') +
+          ' oninput="tabModifiee(' + i + ')" style="margin-top:3px;font-size:13px;padding:7px 9px" /></label>';
+      }).join('') + '</div>';
+    }
+    if (st.commentaire) {
+      h += '<textarea class="form-input" data-com="1" rows="2" placeholder="' + tEsc(st.libelleCommentaire || 'Commentaire') + '…" oninput="tabModifiee(' + i + ')" style="margin-top:8px;font-size:12px;resize:vertical">' + tEsc(l.commentaire) + '</textarea>';
+    }
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">' +
+      '<div id="tabl-pied-' + i + '" style="flex:1;font-size:11px;color:var(--dark-gray)">' + tabPied(l) + '</div>' +
+      '<button class="btn btn-primary btn-sm" id="tabl-btn-' + i + '" onclick="enregistrerLigneTableur(' + i + ')" disabled style="opacity:.45">Enregistrer</button>' +
+    '</div></div>';
+    return h;
+  }).join('') + (liste.length > TAB_MAX_CARTES ? '<div style="text-align:center;padding:12px;font-size:12px;color:var(--dark-gray)">+ ' + (liste.length - TAB_MAX_CARTES) + ' autres lignes — affinez la recherche</div>' : '');
+}
+
+function tabPied(l) {
+  if (!l.le) return 'Pas encore complété';
+  return (l._attente ? '⏳ En attente d\'envoi · ' : '✅ ') + 'Modifié' + (l.par ? ' par ' + tEsc(l.par) : '') + ' le ' + tEsc(l.le);
+}
+
+function tabModifiee(i) {
+  var b = document.getElementById('tabl-btn-' + i);
+  if (b) { b.disabled = false; b.style.opacity = '1'; }
+}
+
+function enregistrerLigneTableur(i) {
+  var tc = _tabCourant;
+  if (!tc) return;
+  var l = tc.lignes[i], card = document.getElementById('tabl-' + i);
+  if (!l || !card) return;
+  var cols = tc.structure.colonnes || [], valeurs = {};
+  card.querySelectorAll('[data-ci]').forEach(function(el) {
+    var cc = cols[Number(el.dataset.ci)];
+    if (!cc) return;
+    valeurs[cc.nom] = el.value.trim();
+    l.v[cc.nom] = el.value.trim();
+  });
+  var com = card.querySelector('[data-com]');
+  var payload = { action: 'tableurSaisir', tableurId: tc.id, cle: l.cle, name: tc.id + '|' + l.cle, valeurs: valeurs };
+  if (com) { payload.commentaire = com.value.trim(); l.commentaire = payload.commentaire; }
+  l.par = currentAccount ? currentAccount.name : ''; l.le = tabMaintenant(); l._attente = true;
+  var cleAtt = tc.id + '|' + l.cle, att = tabAttente();
+  att[cleAtt] = { valeurs: valeurs, commentaire: payload.commentaire, par: l.par, le: l.le };
+  tabAttenteSet(att);
+  tabSauverCache(tc);
+  var b = document.getElementById('tabl-btn-' + i);
+  if (b) { b.disabled = true; b.style.opacity = '.45'; }
+  var pied = document.getElementById('tabl-pied-' + i);
+  if (pied) pied.innerHTML = tabPied(l);
+  var nb = tc.lignes.filter(function(x) { return x.le; }).length, pt = document.getElementById('tab-prog-txt'), pb = document.getElementById('tab-prog-bar');
+  if (pt) pt.textContent = nb + ' / ' + tc.lignes.length + ' ligne(s) complétée(s)';
+  if (pb) pb.style.width = Math.round(100 * nb / tc.lignes.length) + '%';
+  apiPost(payload, { queue: true }).then(function(ok) {
+    if (ok) {
+      var a2 = tabAttente(); delete a2[cleAtt]; tabAttenteSet(a2);
+      l._attente = false; tabSauverCache(tc);
+      var p2 = document.getElementById('tabl-pied-' + i);
+      if (p2 && _tabCourant === tc) p2.innerHTML = tabPied(l);
+    }
+    showToast(ok ? '✅ Ligne enregistrée' : '📴 Enregistrée sur le téléphone — envoi à la reconnexion');
+    try { logEvent('tableur-saisie', tc.t.titre); } catch (e) {}
+  });
+}
+
+// ── Export Excel (manager / admin) : un onglet par onglet d'origine
+function exporterTableur() {
+  var tc = _tabCourant;
+  if (!tc || !tc.structure) return;
+  if (typeof XLSX === 'undefined') { showToast('⚠️ Module Excel indisponible (connexion ?)'); return; }
+  if (!navigator.onLine) { showToast('⚠️ Connexion requise pour exporter les dernières saisies'); return; }
+  showToast('⏳ Préparation de l\'export…');
+  apiPostJSON({ action: 'tableurLire', id: tc.id }).then(function(res) {
+    if (!res || res.status !== 'ok') { showToast('⚠️ ' + ((res && res.message) || 'Export impossible')); return; }
+    var st = res.structure, cols = (st.colonnes || []).map(function(c) { return c.nom; });
+    var entete = cols.concat(st.commentaire ? [st.libelleCommentaire || 'Commentaire'] : []).concat(['Modifié par', 'Modifié le']);
+    var parOnglet = {}, ordre = [];
+    (res.lignes || []).forEach(function(l) {
+      if (!parOnglet[l.onglet]) { parOnglet[l.onglet] = []; ordre.push(l.onglet); }
+      var r = cols.map(function(c) { var v = l.v[c]; return (v !== '' && v !== null && tabEstNombre(v)) ? Number(String(v).replace(',', '.')) : v; });
+      if (st.commentaire) r.push(l.commentaire || '');
+      parOnglet[l.onglet].push(r.concat([l.par || '', l.le || '']));
+    });
+    var wb = XLSX.utils.book_new(), pris = {};
+    ordre.forEach(function(o) {
+      var nom = String(o || 'Feuille').replace(/[\\\/\?\*\[\]:]/g, ' ').slice(0, 31) || 'Feuille', n = 2;
+      while (pris[nom]) nom = nom.slice(0, 28) + ' ' + (n++);
+      pris[nom] = true;
+      var ws = XLSX.utils.aoa_to_sheet([entete].concat(parOnglet[o]));
+      ws['!cols'] = entete.map(function(e) { return { wch: Math.min(40, Math.max(10, String(e).length + 2)) }; });
+      XLSX.utils.book_append_sheet(wb, ws, nom);
+    });
+    if (!ordre.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([entete]), 'Feuille');
+    var d = new Date();
+    XLSX.writeFile(wb, String(tc.t.titre).replace(/[\\\/:*?"<>|]/g, ' ') + ' - ' + d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + '.xlsx');
+  }).catch(function() { showToast('⚠️ Échec réseau'); });
+}
+
+// ── Assistant d'import (manager)
+var _tabImp = null;
+
+function ouvrirImportTableur(id) {
+  var t = tableursListe().filter(function(x) { return x.id === id; })[0];
+  if (!t) return;
+  var st = tableurStructure(id);
+  _tabImp = { id: id, t: t, wb: null, fichier: '', feuilles: [], aoa: {}, onglets: [], entete: {}, colonnes: [],
+    secteurSource: '', commentaire: st ? !!st.commentaire : true, libCom: (st && st.libelleCommentaire) || 'Commentaire', ancien: st };
+  goTo('screen-tableur-import');
+}
+
+function lireFichierTableur(input) {
+  var f = input.files && input.files[0];
+  if (!f || !_tabImp) return;
+  if (typeof XLSX === 'undefined') { showToast('⚠️ Module Excel indisponible (connexion ?)'); return; }
+  var r = new FileReader();
+  r.onload = function(e) {
+    try {
+      var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+      _tabImp.wb = wb; _tabImp.fichier = f.name; _tabImp.feuilles = wb.SheetNames.slice(); _tabImp.aoa = {};
+      _tabImp.onglets = wb.SheetNames.slice();
+      _tabImp.entete = {};
+      var ref = _tabImp.onglets[0];
+      _tabImp.entete[ref] = tabDevinerEntete(tabAoa(ref));
+      tabRecalculerColonnes(true);
+      renderTabImport();
+    } catch (err) { showToast('⚠️ Fichier illisible : ' + err.message); }
+  };
+  r.readAsArrayBuffer(f);
+}
+
+function tabAoa(nom) {
+  if (!_tabImp.aoa[nom]) {
+    _tabImp.aoa[nom] = XLSX.utils.sheet_to_json(_tabImp.wb.Sheets[nom], { header: 1, defval: '', raw: false, dateNF: 'dd/mm/yyyy', blankrows: true })
+      .map(function(r) { return r.map(function(v) { return String(v === null || v === undefined ? '' : v).trim(); }); });
+  }
+  return _tabImp.aoa[nom];
+}
+
+// En-tête probable : ≥ 2 libellés texte, suivis du plus grand nombre de lignes remplies
+function tabDevinerEntete(aoa) {
+  var meilleur = 0, score = -1;
+  for (var i = 0; i < Math.min(25, aoa.length); i++) {
+    var cells = aoa[i].filter(function(v) { return v !== ''; });
+    if (cells.length < 2 || cells.some(tabEstNombre)) continue;
+    var n = 0;
+    for (var j = i + 1; j < aoa.length && aoa[j][0] !== ''; j++) n++;
+    if (n > score) { score = n; meilleur = i; }
+  }
+  return meilleur;
+}
+
+// Même en-tête dans les autres onglets : on cherche la ligne qui commence pareil
+function tabEnteteOnglet(nom) {
+  if (_tabImp.entete[nom] !== undefined) return _tabImp.entete[nom];
+  var ref = _tabImp.onglets[0], aoa = tabAoa(nom);
+  var debut = (tabAoa(ref)[_tabImp.entete[ref]] || []).filter(function(v) { return v !== ''; })[0] || '';
+  for (var i = 0; i < Math.min(40, aoa.length); i++) {
+    if (aoa[i].filter(function(v) { return v !== ''; })[0] === debut) return i;
+  }
+  return tabDevinerEntete(aoa);
+}
+
+function tabEntetes(nom) {
+  var row = tabAoa(nom)[tabEnteteOnglet(nom)] || [], vus = {}, out = [];
+  row.forEach(function(v, j) {
+    if (!v) return;
+    var n = v, k = 2;
+    while (vus[n]) n = v + ' (' + (k++) + ')';
+    vus[n] = true;
+    out.push({ nom: n, j: j });
+  });
+  return out;
+}
+
+function tabLignesOnglet(nom) {
+  var aoa = tabAoa(nom), e = tabEnteteOnglet(nom), hs = tabEntetes(nom), out = [];
+  if (!hs.length) return out;
+  var j0 = hs[0].j;
+  for (var i = e + 1; i < aoa.length; i++) {
+    if (!aoa[i][j0]) continue;
+    var o = {};
+    hs.forEach(function(hh) { o[hh.nom] = aoa[i][hh.j] || ''; });
+    out.push({ ligne: i + 1, v: o });
+  }
+  return out;
+}
+
+function tabRecalculerColonnes(defauts) {
+  var I = _tabImp, anciennes = {};
+  if (I.ancien) (I.ancien.colonnes || []).forEach(function(c) { anciennes[c.nom] = c; });
+  var noms = [];
+  I.onglets.forEach(function(o) { tabEntetes(o).forEach(function(hh) { if (noms.indexOf(hh.nom) === -1) noms.push(hh.nom); }); });
+  var ref = I.onglets[0], lignesRef = ref ? tabLignesOnglet(ref) : [];
+  I.colonnes = noms.map(function(n, k) {
+    if (anciennes[n]) return { nom: n, afficher: anciennes[n].afficher, saisie: anciennes[n].saisie };
+    var vides = lignesRef.filter(function(l) { return !l.v[n]; }).length;
+    return { nom: n, afficher: true, saisie: k > 0 && lignesRef.length > 0 && vides / lignesRef.length >= 0.5 };
+  });
+  if (!I.secteurSource || (I.secteurSource.indexOf('col:') === 0 && noms.indexOf(I.secteurSource.slice(4)) === -1)) {
+    var colSect = noms.filter(function(n) { return /secteur/i.test(n); })[0];
+    I.secteurSource = (I.ancien && I.ancien.secteurSource && defauts) ? I.ancien.secteurSource
+      : colSect ? 'col:' + colSect : (I.onglets.length > 1 ? 'onglet' : 'aucun');
+  }
+}
+
+function renderTabImport() {
+  var c = document.getElementById('tableur-import-content'), I = _tabImp;
+  if (!c || !I) return;
+  var ttl = document.getElementById('tableur-import-titre');
+  if (ttl) ttl.textContent = 'Importer — ' + I.t.titre;
+  var h = '<div style="font-size:12px;color:var(--dark-gray);line-height:1.5;margin-bottom:12px">Choisissez le fichier Excel : ses lignes seront copiées dans l\'appli pour que chacun complète celles de son secteur. ' +
+    (I.ancien ? '<b>Un réimport remplace les saisies déjà faites</b> : exportez-les d\'abord si besoin.' : '') + '</div>' +
+    '<label class="btn btn-secondary" style="display:block;text-align:center;margin-bottom:14px">📂 ' + (I.wb ? 'Changer de fichier (' + tEsc(I.fichier) + ')' : 'Choisir le fichier Excel') +
+    '<input type="file" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="lireFichierTableur(this)" /></label>';
+  if (!I.wb) { c.innerHTML = h; return; }
+  var sec = function(t) { return '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 8px">' + t + '</div>'; };
+
+  h += sec('1. Onglets à reprendre');
+  h += I.feuilles.map(function(o) {
+    return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0"><input type="checkbox" data-o="' + tEsc(o) + '" ' + (I.onglets.indexOf(o) > -1 ? 'checked' : '') +
+      ' onchange="tabBasculerOnglet(this.dataset.o,this.checked)" /> ' + tEsc(o) + '</label>';
+  }).join('');
+  if (!I.onglets.length) { c.innerHTML = h + '<div style="font-size:12px;color:var(--brand)">Cochez au moins un onglet.</div>'; return; }
+
+  var ref = I.onglets[0], aoa = tabAoa(ref), e = tabEnteteOnglet(ref);
+  h += sec('2. Ligne des titres de colonnes') +
+    '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px">Onglet « ' + tEsc(ref) + ' » — touchez la ligne qui contient les titres. Les autres onglets suivent automatiquement.</div>';
+  h += aoa.slice(0, 15).map(function(r, i) {
+    var txt = r.filter(function(v) { return v !== ''; }).join(' | ');
+    var on = i === e;
+    return '<div onclick="tabChoisirEntete(' + i + ')" style="cursor:pointer;font-size:11px;padding:6px 8px;border-radius:6px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
+      (on ? 'background:#2E8B57;color:#fff;font-weight:700' : 'background:var(--beige)') + '">' + (i + 1) + '. ' + (txt ? tEsc(txt) : '<i>(vide)</i>') + '</div>';
+  }).join('');
+
+  h += sec('3. Colonnes') +
+    '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;font-size:11px;font-weight:700;color:var(--dark-gray);padding-bottom:4px"><span>Colonne</span><span style="text-align:center">Affichée</span><span style="text-align:center">À compléter</span></div>' +
+    I.colonnes.map(function(col, k) {
+      return '<div style="display:grid;grid-template-columns:1fr 64px 64px;gap:4px;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid var(--beige)">' +
+        '<span>' + tEsc(col.nom) + (k === 0 ? ' <span style="color:var(--dark-gray)">(titre)</span>' : '') + '</span>' +
+        '<span style="text-align:center"><input type="checkbox" ' + (col.afficher ? 'checked' : '') + ' onchange="_tabImp.colonnes[' + k + '].afficher=this.checked" /></span>' +
+        '<span style="text-align:center"><input type="checkbox" ' + (col.saisie ? 'checked' : '') + ' onchange="_tabImp.colonnes[' + k + '].saisie=this.checked" /></span></div>';
+    }).join('');
+
+  h += sec('4. Qui voit quelle ligne ?') +
+    '<select class="form-select" onchange="_tabImp.secteurSource=this.value;renderTabImport()">' +
+      '<option value="aucun"' + (I.secteurSource === 'aucun' ? ' selected' : '') + '>Tout le monde voit toutes les lignes</option>' +
+      (I.onglets.length > 1 ? '<option value="onglet"' + (I.secteurSource === 'onglet' ? ' selected' : '') + '>Un onglet par secteur (nom de l\'onglet = secteur)</option>' : '') +
+      I.colonnes.map(function(col) { var v = 'col:' + col.nom; return '<option value="' + tEsc(v) + '"' + (I.secteurSource === v ? ' selected' : '') + '>Le secteur est dans la colonne « ' + tEsc(col.nom) + ' »</option>'; }).join('') +
+    '</select>' +
+    '<div style="font-size:11px;color:var(--dark-gray);margin-top:4px">Le manager et l\'admin voient toujours tout.</div>';
+
+  h += sec('5. Commentaire libre') +
+    '<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" ' + (I.commentaire ? 'checked' : '') + ' onchange="_tabImp.commentaire=this.checked;renderTabImport()" /> Ajouter un champ de commentaire sur chaque ligne</label>' +
+    (I.commentaire ? '<input class="form-input" value="' + tEsc(I.libCom) + '" oninput="_tabImp.libCom=this.value" placeholder="Libellé du champ" style="margin-top:6px" />' : '');
+
+  var total = 0, detail = I.onglets.map(function(o) { var n = tabLignesOnglet(o).length; total += n; return tEsc(o) + ' : ' + n; });
+  h += sec('6. Aperçu') + '<div style="font-size:12px;line-height:1.6">' + total + ' ligne(s) — ' + detail.join(' · ') + '</div>' +
+    '<button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="importerTableur()">📥 Importer dans l\'appli</button>';
+  c.innerHTML = h;
+}
+
+function tabBasculerOnglet(o, on) {
+  var I = _tabImp, i = I.onglets.indexOf(o);
+  if (on && i === -1) { I.onglets = I.feuilles.filter(function(f) { return f === o || I.onglets.indexOf(f) > -1; }); }
+  if (!on && i > -1) I.onglets.splice(i, 1);
+  if (I.onglets.length && I.entete[I.onglets[0]] === undefined) {
+    I.entete = {}; I.entete[I.onglets[0]] = tabDevinerEntete(tabAoa(I.onglets[0]));
+  }
+  if (I.onglets.length) tabRecalculerColonnes(false);
+  renderTabImport();
+}
+
+function tabChoisirEntete(i) {
+  var I = _tabImp;
+  I.entete = {}; I.entete[I.onglets[0]] = i;
+  tabRecalculerColonnes(false);
+  renderTabImport();
+}
+
+function importerTableur() {
+  var I = _tabImp;
+  if (!I || !I.onglets.length || !I.colonnes.length) return;
+  if (!I.colonnes.some(function(c) { return c.saisie; }) && !I.commentaire) { showToast('⚠️ Cochez au moins une colonne « À compléter » ou le commentaire'); return; }
+  if (I.ancien && !confirm('Remplacer le tableur déjà importé ?\nLes saisies faites dans l\'appli seront effacées.')) return;
+  if (!navigator.onLine) { showToast('⚠️ Connexion requise'); return; }
+  var noms = I.colonnes.map(function(c) { return c.nom; }), lignes = [];
+  I.onglets.forEach(function(o) {
+    tabLignesOnglet(o).forEach(function(l) {
+      var sect = I.secteurSource === 'onglet' ? o : I.secteurSource.indexOf('col:') === 0 ? (l.v[I.secteurSource.slice(4)] || '') : '';
+      lignes.push({ cle: o + '|' + l.ligne, onglet: o, secteur: sect, v: noms.map(function(n) { return l.v[n] !== undefined ? l.v[n] : ''; }) });
+    });
+  });
+  if (!lignes.length) { showToast('⚠️ Aucune ligne trouvée sous les titres choisis'); return; }
+  var structure = { fichier: I.fichier, onglets: I.onglets, colonnes: I.colonnes, secteurSource: I.secteurSource,
+    commentaire: !!I.commentaire, libelleCommentaire: (I.libCom || 'Commentaire').trim() };
+  showToast('⏳ Import de ' + lignes.length + ' ligne(s)…');
+  apiPostJSON({ action: 'tableurImporter', id: I.id, structure: structure, colonnes: noms, lignes: lignes }).then(function(res) {
+    if (!res || res.status !== 'ok') { showToast('⚠️ ' + ((res && res.message) || 'Import impossible')); return; }
+    if (!db.tableursStructures) db.tableursStructures = {};
+    db.tableursStructures[I.id] = res.structure || structure;
+    saveDB();
+    try { localStorage.removeItem(tabCacheKey(I.id)); } catch (e) {}
+    var att = tabAttente();
+    Object.keys(att).forEach(function(k) { if (k.indexOf(I.id + '|') === 0) delete att[k]; });
+    tabAttenteSet(att);
+    showToast('✅ Tableur importé — saisie activée');
+    _tabImp = null;
+    ouvrirTableurSaisie(I.id);
+  }).catch(function() { showToast('⚠️ Échec réseau'); });
+}
+
 // Ouvre le fichier hors de l'appli (indispensable sur iPhone pour la connexion Microsoft)
 function ouvrirTableur(id) {
   var t = tableursVisibles().filter(function(x) { return x.id === id; })[0];
   if (!t) return;
+  if (!t.url) return;
   var w = null;
   try { w = window.open(t.url, '_blank'); } catch (e) {}
   if (w) { try { w.opener = null; } catch (e) {} } else { window.location.href = t.url; }
@@ -2610,7 +3097,7 @@ var MODS = {
       { k: 'id', t: 'Identifiant', auto: true, ex: '', aide: 'Laisser vide pour un nouveau tableur' },
       { k: 'titre', t: 'Titre', oblig: true, ex: 'Stock PLV par secteur' },
       { k: 'sousTitre', t: 'Sous-titre', ex: 'Mise à jour mensuelle' },
-      { k: 'url', t: 'Lien du fichier', oblig: true, type: 'url', ex: 'https://monentreprise.sharepoint.com/:x:/s/…', aide: 'Lien de partage SharePoint / OneDrive / Google Sheets' },
+      { k: 'url', t: 'Lien du fichier', type: 'url', ex: 'https://monentreprise.sharepoint.com/:x:/s/…', aide: 'Lien de partage SharePoint / OneDrive / Google Sheets — facultatif si le fichier est importé dans l\'appli' },
       { k: 'consigne', t: 'Consigne', type: 'texte', ex: 'Complétez la ligne de votre secteur (cellules jaunes).' },
       { k: 'echeance', t: 'À rendre avant le', type: 'date', ex: '', aide: 'Facultatif, AAAA-MM-JJ' },
       { k: 'roles', t: 'Visible par', type: 'roles', ex: 'cds', aide: 'Vide = tout le monde. Sinon : ' + ROLES_EXCEL_AIDE },
@@ -2689,22 +3176,23 @@ var MODS = {
       { k: 'enseigne', t: 'Enseigne', oblig: true, ex: 'Enseigne A' },
       { k: 'secteur', t: 'Secteur', ex: 'Ouest' },
       { k: 'email', t: 'Email', ex: 'magasin@exemple.com' },
+      { k: 'email2', t: 'Email 2', ex: 'responsable@exemple.com' },
       { k: 'commentaire', t: 'Commentaire', type: 'texte', ex: '' }
     ],
-    lire: function() { return (db.pdvList || []).map(function(p) { return { name: p.name, enseigne: p.enseigne, secteur: p.secteur || '', email: p.email || '', commentaire: p.commentaire || '' }; }); },
+    lire: function() { return (db.pdvList || []).map(function(p) { return { name: p.name, enseigne: p.enseigne, secteur: p.secteur || '', email: p.email || '', email2: p.email2 || '', commentaire: p.commentaire || '' }; }); },
     ecrire: function(lignes, remplacer) {
       var cle = function(p) { return String(p.enseigne).trim().toLowerCase() + '||' + String(p.name).trim().toLowerCase(); };
       var liste = remplacer ? [] : (db.pdvList || []).slice(), idx = {};
       liste.forEach(function(p, i) { idx[cle(p)] = i; });
       lignes.forEach(function(l) {
-        var p = { name: String(l.name).trim(), enseigne: String(l.enseigne).trim(), secteur: String(l.secteur || '').trim(), email: String(l.email || '').trim(), commentaire: String(l.commentaire || '').trim() };
+        var p = { name: String(l.name).trim(), enseigne: String(l.enseigne).trim(), secteur: String(l.secteur || '').trim(), email: String(l.email || '').trim(), email2: String(l.email2 || '').trim(), commentaire: String(l.commentaire || '').trim() };
         var i = idx[cle(p)];
         if (i === undefined) { p.id = 'pdv_' + Math.abs(hashCode(p.name + p.enseigne)); idx[cle(p)] = liste.length; liste.push(p); }
-        else ['secteur', 'email', 'commentaire'].forEach(function(k) { if (p[k]) liste[i][k] = p[k]; });
+        else ['secteur', 'email', 'email2', 'commentaire'].forEach(function(k) { if (p[k]) liste[i][k] = p[k]; });
       });
       db.pdvList = liste; saveDB();
       try { initCDSEnseigneSelect(); } catch (e) {}
-      var light = liste.map(function(p) { return [p.name, p.enseigne, p.secteur, p.email || '', p.commentaire || '']; });
+      var light = liste.map(function(p) { return [p.name, p.enseigne, p.secteur, p.email || '', p.commentaire || '', p.email2 || '']; });
       return apiPost({ action: 'syncAllPDV', pdvData: light }, { queue: true });
     }
   },
@@ -3468,6 +3956,8 @@ function onScreenEnter(id) {
   if (id === 'screen-anomalie') initAnomalie();
   if (id === 'screen-outils') renderOutils();
   if (id === 'screen-tableurs') renderTableurs();
+  if (id === 'screen-tableur-saisie') renderTableurSaisie();
+  if (id === 'screen-tableur-import') renderTabImport();
   if (id === 'screen-parametrage') renderParametrage();
   if (id === 'screen-liste-config') renderListeConfig();
   if (id === 'screen-formations') initFormationsScreen();
@@ -4519,11 +5009,14 @@ function filtrerMagasinsMail() {
   list.innerHTML = pdvs.map(function(p) {
     var email = p.email || '';
     return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--beige)">' +
-      '<input type="checkbox" class="mail-offres-cb" data-pdvid="' + p.id + '" onchange="updateMailOffresCount()" ' + (email ? 'checked' : '') + ' />' +
+      '<input type="checkbox" class="mail-offres-cb" data-pdvid="' + p.id + '" onchange="updateMailOffresCount()" ' + (email || p.email2 ? 'checked' : '') + ' />' +
       '<div style="flex:1;min-width:0">' +
     '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(p.name) + '</div>' +
         '<input class="form-input" value="' + escHtml(email) + '" placeholder="email@magasin.com" ' +
           'onchange="sauverContactMail(\'' + p.id + '\',this.value)" onblur="sauverContactMail(\'' + p.id + '\',this.value)" ' +
+          'style="font-size:11px;padding:4px 8px;margin-top:4px" />' +
+        '<input class="form-input" value="' + escHtml(p.email2 || '') + '" placeholder="2e email (facultatif)" ' +
+          'onchange="sauverContactMail(\'' + p.id + '\',this.value,\'email2\')" onblur="sauverContactMail(\'' + p.id + '\',this.value,\'email2\')" ' +
           'style="font-size:11px;padding:4px 8px;margin-top:4px" />' +
       '</div>' +
     '</div>';
@@ -4531,14 +5024,18 @@ function filtrerMagasinsMail() {
   updateMailOffresCount();
 }
 
-function sauverContactMail(pdvId, email) {
+// champ : 'email' (défaut) ou 'email2'
+function emailsPDV(p) { return p ? [p.email, p.email2].map(function(e) { return String(e || '').trim(); }).filter(Boolean) : []; }
+function sauverContactMail(pdvId, email, champ) {
+  champ = champ === 'email2' ? 'email2' : 'email';
   email = (email || '').trim();
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { showToast('⚠️ Email invalide'); return; }
   var pdv = (db.pdvList || []).find(function(p) { return p.id === pdvId; });
-  if (!pdv || (pdv.email || '') === email) return;
-  pdv.email = email;
-  pdv._emailPending = true;
+  if (!pdv || (pdv[champ] || '') === email) return;
+  pdv[champ] = email;
+  pdv['_' + champ + 'Pending'] = true;
   saveDB();
-  apiPost({ action:'updatePDVEmail', name:pdv.name, enseigne:pdv.enseigne, secteur:pdv.secteur, email:email }, { queue:true, keepalive:true }).then(function(ok){
+  apiPost({ action:'updatePDVEmail', champ:champ, id:pdv.id + '|' + champ, name:pdv.name, enseigne:pdv.enseigne, secteur:pdv.secteur, email:email }, { queue:true, keepalive:true }).then(function(ok){
     showToast(ok ? '✅ Email enregistré' : '⚠️ Email sauvé en local — sera renvoyé à la reconnexion');
   });
 }
@@ -4547,7 +5044,7 @@ function selectAllMagasinsMail(state) {
   document.querySelectorAll('.mail-offres-cb').forEach(function(cb) {
     var pdvId = cb.dataset.pdvid;
     var pdv = (db.pdvList || []).find(function(p) { return p.id === pdvId; });
-    var email = pdv && pdv.email;
+    var email = emailsPDV(pdv).length;
     if (state && email) cb.checked = true;
     else if (state && !email) cb.checked = false;
     else cb.checked = false;
@@ -4561,7 +5058,7 @@ function updateMailOffresCount() {
   checked.forEach(function(cb) {
     var pdvId = cb.dataset.pdvid;
     var pdv = (db.pdvList || []).find(function(p) { return p.id === pdvId; });
-    if (pdv && pdv.email) withEmail++;
+    if (emailsPDV(pdv).length) withEmail++;
   });
   document.getElementById('mail-offres-count').textContent = checked.length + ' magasin(s) sélectionné(s), ' + withEmail + ' avec email';
 }
@@ -4572,7 +5069,7 @@ function envoyerMailOffresSelected() {
   checked.forEach(function(cb) {
     var pdvId = cb.dataset.pdvid;
     var pdv = (db.pdvList || []).find(function(p) { return p.id === pdvId; });
-    if (pdv && pdv.email) emails.push(pdv.email);
+    emailsPDV(pdv).forEach(function(e) { if (emails.indexOf(e) === -1) emails.push(e); });
   });
   if (!emails.length) {
     showToast('⚠️ Aucun email renseigné pour les magasins sélectionnés');
@@ -5061,6 +5558,10 @@ function renderMesMagasins() {
           '<div style="font-size:11px;color:#AABBCC">' + escHtml(p.enseigne) + ' · ' + escHtml(p.secteur) + '</div>' +
         '</div>' +
       '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">' +
+        '<input class="form-input" type="email" value="' + escHtml(p.email || '') + '" placeholder="Email magasin" onchange="sauverContactMail(\'' + p.id + '\',this.value)" style="font-size:12px;padding:6px 8px" />' +
+        '<input class="form-input" type="email" value="' + escHtml(p.email2 || '') + '" placeholder="2e email" onchange="sauverContactMail(\'' + p.id + '\',this.value,\'email2\')" style="font-size:12px;padding:6px 8px" />' +
+      '</div>' +
      '<textarea class="form-input" rows="2" placeholder="Notes pour la prochaine visite..." ' +
         'onchange="sauverCommentairePDV(\'' + p.id + '\',this.value)" ' +
         'onblur="sauverCommentairePDV(\'' + p.id + '\',this.value)" ' +
@@ -5071,7 +5572,7 @@ function renderMesMagasins() {
 }
 function syncPDVCommentairesOnReconnect() {
   try {
-    var lightPDV = db.pdvList.map(function(p) { return [p.name, p.enseigne, p.secteur, p.email || '', p.commentaire || '']; });
+    var lightPDV = db.pdvList.map(function(p) { return [p.name, p.enseigne, p.secteur, p.email || '', p.commentaire || '', p.email2 || '']; });
     apiPost({ action:'syncAllPDV', pdvData:lightPDV }, { queue:true });
   } catch(e) {}
 }
@@ -5990,6 +6491,7 @@ function renderPDVList() {
         '<div style="font-size:13px;font-weight:600">' + escHtml(p.name) + '</div>' +
         '<div style="font-size:11px;color:var(--dark-gray)">' + p.enseigne + ' · ' + p.secteur + '</div>' +
         (p.email ? '<div style="font-size:10px;color:var(--coral)">' + escHtml(p.email) + '</div>' : '') +
+        (p.email2 ? '<div style="font-size:10px;color:var(--coral)">' + escHtml(p.email2) + '</div>' : '') +
       '</div>' +
     '</div>';
   }).join('') + (list.length > 100 ? '<div style="text-align:center;padding:12px;font-size:12px;color:var(--dark-gray)">+ ' + (list.length-100) + ' autres — affinez la recherche</div>' : '');
@@ -6018,7 +6520,8 @@ function importPDVFile(input) {
       var nameCol = Object.keys(firstRow).find(function(k){ return k.toLowerCase().includes('nom') || k.toLowerCase().includes('magasin'); });
       var ensCol = Object.keys(firstRow).find(function(k){ return k.toLowerCase().includes('enseigne'); });
       var sectCol = Object.keys(firstRow).find(function(k){ return k.toLowerCase().includes('secteur'); });
-      var emailCol = Object.keys(firstRow).find(function(k){ return k.toLowerCase().includes('email') || k.toLowerCase().includes('mail'); });
+      var emailCol = Object.keys(firstRow).find(function(k){ var x = k.toLowerCase(); return (x.includes('email') || x.includes('mail')) && !/(2|bis)\s*$/.test(x); });
+      var email2Col = Object.keys(firstRow).find(function(k){ var x = k.toLowerCase(); return (x.includes('email') || x.includes('mail')) && /(2|bis)\s*$/.test(x); });
       var commentCol = Object.keys(firstRow).find(function(k){ return k.toLowerCase().includes('commentaire') || k.toLowerCase().includes('comment'); });
       
       if (!nameCol || !ensCol) {
@@ -6034,9 +6537,10 @@ function importPDVFile(input) {
         if (name && ens) {
          var em = emailCol ? String(row[emailCol]||'').trim() : '';
           var cm = commentCol ? String(row[commentCol]||'').trim() : '';
+          var em2 = email2Col ? String(row[email2Col]||'').trim() : '';
           newList.push({
             id: 'pdv_' + Math.abs(hashCode(name + ens)),
-            name: name, enseigne: ens, secteur: sect, email: em, commentaire: cm
+            name: name, enseigne: ens, secteur: sect, email: em, email2: em2, commentaire: cm
           });
         }
       });
@@ -7689,7 +8193,7 @@ async function syncConfig() {
     var pdvList = db.pdvList || [];
     if (pdvList.length > 0) {
       showToast('📤 Envoi des ' + pdvList.length + ' PDV...');
-      var lightPDV = pdvList.map(function(p){ return [p.name, p.enseigne, p.secteur, p.email || '', p.commentaire || '']; });
+      var lightPDV = pdvList.map(function(p){ return [p.name, p.enseigne, p.secteur, p.email || '', p.commentaire || '', p.email2 || '']; });
       try {
         await apiPost({ action: 'syncAllPDV', pdvData: lightPDV }, { queue:true });
         showToast('✅ PDV envoyés');
@@ -7895,7 +8399,7 @@ function handleAuthError(res) {
 // Les appels idempotents passes avec {queue:true} sont mis en file
 // d'attente hors ligne et rejoues automatiquement au retour du reseau.
 // ══════════════════════════════════════════════════════════
-var QUEUEABLE_ACTIONS = ['syncAllPDV', 'updatePDVComment', 'upsertFormation', 'deleteFormation', 'syncConfig', 'upsertSession', 'savePlvCommande', 'saveTable', 'updatePDVEmail'];
+var QUEUEABLE_ACTIONS = ['syncAllPDV', 'updatePDVComment', 'upsertFormation', 'deleteFormation', 'syncConfig', 'upsertSession', 'savePlvCommande', 'saveTable', 'updatePDVEmail', 'tableurSaisir'];
 
 // Le jeton de session est ajoute ici, une fois pour toutes : aucune action
 // n'a besoin d'y penser. 'login' est la seule exception (il n'en a pas encore).
@@ -8031,7 +8535,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.2.0-beta';
+var APP_VERSION = 'v5.3.0-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -8627,11 +9131,14 @@ db.quizzes = data.quizzes.filter(function(q) {
       var key = (srv.enseigne || '') + '||' + (srv.name || '');
       var loc = localByKey[key];
       // si le serveur renvoie un email vide mais qu'on en a un en local, on garde le local
-      var srvEmail = srv.email || '';
-      if (loc && loc.email && (!srvEmail || loc._emailPending)) {
-        srv.email = loc.email;
-        if (loc._emailPending && srvEmail !== loc.email) srv._emailPending = true;
-      }
+      ['email', 'email2'].forEach(function(ch) {
+        var srvV = srv[ch] || '', pend = '_' + ch + 'Pending';
+        if (loc && loc[ch] && (!srvV || loc[pend])) {
+          srv[ch] = loc[ch];
+          if (loc[pend] && srvV !== loc[ch]) srv[pend] = true;
+        }
+        if (loc && loc[pend] && !loc[ch] && srvV) { srv[ch] = ''; srv[pend] = true; }
+      });
       return srv;
     });
   }
@@ -8682,6 +9189,7 @@ if (data.offresITO) { db.offresITO = data.offresITO; recalculerEnseignesOffres()
   // Configuration client (v5) : null = onglet absent du Sheet → valeurs du client (APP_CONFIG)
   if (data.parametres !== undefined) db.parametres = (data.parametres && typeof data.parametres === 'object') ? data.parametres : null;
   ['typologies', 'outils', 'messages', 'tableurs'].forEach(function(k) { if (data[k] !== undefined) db[k] = Array.isArray(data[k]) ? data[k] : null; });
+  if (data.tableursStructures !== undefined) db.tableursStructures = data.tableursStructures || {};
   appliquerConfigClient();
   // Rôles personnalisés : rangés dans la ligne offresITO de l'onglet Config (aucun Apps Script à modifier)
   if (data.offresITO && Array.isArray(data.offresITO._rolesPerso)) db.rolesPerso = data.offresITO._rolesPerso;
@@ -10306,7 +10814,8 @@ function envoyerMailPromos() {
   texte += 'Cordialement,';
 
   // Emails des magasins de l'enseigne
-  var emails = (db.pdvList||[]).filter(function(p){ return p.enseigne === ens && p.email; }).map(function(p){ return p.email; });
+  var emails = [];
+  (db.pdvList||[]).filter(function(p){ return p.enseigne === ens; }).forEach(function(p){ emailsPDV(p).forEach(function(e){ if (emails.indexOf(e) === -1) emails.push(e); }); });
   var sujetText = encodeURIComponent(P('sujetPromos') + ' — ' + ens);
   var bodyText = encodeURIComponent(texte);
   var bcc = encodeURIComponent(emails.join(','));
