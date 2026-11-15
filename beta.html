@@ -1844,7 +1844,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   </div>
   <div class="content">
     <div style="font-size:12px;color:var(--dark-gray);margin-bottom:14px;line-height:1.5">
-      Touchez un tableur pour le compléter. Ceux marqués « Saisie dans l'appli » se remplissent ici ; les autres s'ouvrent dans Excel.
+      Touchez un tableur pour le compléter : les cases jaunes sont à remplir, l'enregistrement est automatique.
     </div>
     <div id="tableurs-list"></div>
   </div>
@@ -2001,10 +2001,21 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     </div>
   <div class="form-group" style="margin-top:20px">
       <label class="form-label">Contenu des offres</label>
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <button type="button" class="btn btn-secondary btn-sm" style="width:auto" onclick="document.getElementById('offre-img-input').click()">🖼️ Insérer une image</button>
+        <input type="file" id="offre-img-input" accept="image/*" style="display:none" onchange="insererImageComm(this)">
+      </div>
       <textarea class="form-input" id="offre-contenu" rows="12" oninput="apercuITO()" placeholder="Collez ici le texte des offres (émojis acceptés)..." style="resize:vertical;font-size:13px;line-height:1.6;white-space:pre-wrap;tab-size:12"></textarea>
       <div style="font-size:11px;color:var(--dark-gray);margin-top:6px;line-height:1.4">📊 Copiez des cellules dans Excel et collez-les ici : elles s'afficheront en tableau. La première ligne copiée sert d'en-tête.</div>
       <div class="section-label" style="margin-top:14px">Aperçu</div>
       <div id="offre-apercu" class="stat-card full" style="white-space:pre-wrap;line-height:1.6;font-size:13px;min-height:40px"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">📎 Pièces jointes</label>
+      <div id="offre-pieces"></div>
+      <button type="button" class="btn btn-secondary btn-sm" style="width:auto;margin-top:4px" onclick="document.getElementById('offre-pj-input').click()">+ Ajouter une pièce jointe</button>
+      <input type="file" id="offre-pj-input" multiple style="display:none" onchange="ajouterPieceComm(this)">
+      <div style="font-size:11px;color:var(--dark-gray);margin-top:6px;line-height:1.4">PDF, Excel, Word, images… 15 Mo maximum par fichier. Visibles dans l'appli et envoyées avec le mail.</div>
     </div>
     <button class="btn btn-primary mb-8" onclick="sauverOffresITO()" style="margin-top:20px">💾 Enregistrer les offres</button>
     <button class="btn btn-secondary" onclick="goTo('screen-manager')">Annuler</button>
@@ -2340,7 +2351,8 @@ function renderTableurs() {
         (t.consigne ? '<div style="font-size:12px;color:var(--dark-gray);margin-top:6px;line-height:1.45;white-space:pre-line">' + escHtml(t.consigne) + '</div>' : '') +
         badgeEcheance(t.echeance) +
         (st ? ' <span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;background:#2E8B57">Saisie dans l\'appli</span>' : '') +
-        (hasRole('manager') ? '<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();ouvrirImportTableur(\'' + idJs + '\')">📥 ' + (st ? 'Réimporter l\'Excel' : 'Saisie dans l\'appli : importer l\'Excel') + '</button></div>' : '') +
+        (hasRole('manager') ? '<div style="margin-top:8px;display:flex;gap:6px"><button class="btn btn-secondary btn-sm" style="width:auto" onclick="event.stopPropagation();ouvrirImportTableur(\'' + idJs + '\')">📥 ' + (st ? 'Réimporter l\'Excel' : 'Importer l\'Excel') + '</button>' +
+          '<button class="btn btn-secondary btn-sm" style="width:auto" onclick="event.stopPropagation();ouvrirReglagesTableur(\'' + idJs + '\')">⚙️ Réglages</button></div>' : '') +
       '</div>' +
       '<div class="quiz-card-arrow">' + (st ? '›' : '↗') + '</div>' +
     '</div>';
@@ -2356,7 +2368,7 @@ function renderTableurs() {
 // réexporte le tout en Excel.
 // ══════════════════════════════════════════════════════════════════════
 var _tabCourant = null;
-var _tabFiltre = { onglet: '', q: '', statut: '', cols: {}, tri: '', ouvert: -1, page: 40, panneau: false };
+var _tabFiltre = { onglet: '', q: '', statut: '', cols: {}, tri: null, page: 150, edition: false };
 
 function tableurStructure(id) { return (db.tableursStructures || {})[id] || null; }
 function tabCacheKey(id) { return PFX + 'tab_' + id; }
@@ -2375,7 +2387,7 @@ function ouvrirTableurSaisie(id) {
   var t = tableursVisibles().filter(function(x) { return x.id === id; })[0];
   if (!t) return;
   _tabCourant = { id: id, t: t, structure: tableurStructure(id), colonnes: [], lignes: [], charge: false, etat: '' };
-  _tabFiltre = { onglet: '', q: '', statut: '', cols: {}, tri: '', ouvert: -1, page: 40, panneau: false };
+  _tabFiltre = { onglet: '', q: '', statut: '', cols: {}, tri: null, page: 150, edition: false };
   try {
     var c = JSON.parse(localStorage.getItem(tabCacheKey(id)) || 'null');
     if (c && c.lignes) { _tabCourant.colonnes = c.colonnes || []; _tabCourant.lignes = c.lignes; if (c.structure) _tabCourant.structure = c.structure; _tabCourant.charge = true; }
@@ -2421,64 +2433,60 @@ function chargerTableur() {
   });
 }
 
-function tabColsSaisie(st) { return (st && st.colonnes || []).filter(function(c) { return c.saisie; }); }
-function tabColsInfo(st) { return (st && st.colonnes || []).filter(function(c) { return c.afficher && !c.saisie; }); }
+// ══════════════════════════════════════════════════════════════════════
+// GRILLE « COMME EXCEL » (v5.7)
+// Mêmes colonnes, largeurs et couleurs que le fichier d'origine, un onglet
+// en bas par feuille. Cases jaunes = à remplir (CDS). Le manager peut
+// modifier toutes les cases, ajouter et supprimer des lignes.
+// ══════════════════════════════════════════════════════════════════════
+var TAB_PAGE = 150;
 function tabVide(v) { return v === '' || v === null || v === undefined; }
 function tabNorm(s) { return String(s === null || s === undefined ? '' : s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
-function tabColTitre(st) {
-  var c = (st && st.colonnes) || [];
-  var t = c.filter(function(x) { return x.titre; })[0] || c.filter(function(x) { return x.afficher && !x.saisie; })[0] || c[0];
-  return t ? t.nom : '';
+function tabColsSaisie(st) { return (st && st.colonnes || []).filter(function(c) { return c.saisie; }); }
+// Colonnes affichées dans la grille (une colonne « masquée » à l'import n'apparaît pas)
+function tabColsGrille(st) { return (st && st.colonnes || []).filter(function(c) { return !c.masquee && (c.afficher !== false || c.saisie); }); }
+function tabTexteSur(rgb) {
+  var h = String(rgb || '').replace('#', '');
+  if (h.length !== 6) return 'var(--charcoal)';
+  var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) < 150 ? '#FFFFFF' : '#2E3139';
 }
-function tabColsResume(st, titre) {
-  var c = (st && st.colonnes) || [];
-  if (c.some(function(x) { return 'resume' in x; })) return c.filter(function(x) { return x.resume && x.nom !== titre; }).map(function(x) { return x.nom; });
-  return c.filter(function(x) { return x.afficher && !x.saisie && x.nom !== titre; }).slice(0, 2).map(function(x) { return x.nom; });
-}
+function tabFond(rgb) { var h = String(rgb || '').replace('#', ''); return /^[0-9a-f]{6}$/i.test(h) && h.toUpperCase() !== 'FFFFFF' ? '#' + h : ''; }
+function tabEstGere() { return hasRole('manager'); }
 
-// Prépare une fois par chargement : texte de recherche, valeurs distinctes (filtres, suggestions)
 function tabPreparer(tc) {
-  var st = tc.structure || {}, cols = st.colonnes || [], dist = {};
-  cols.forEach(function(c) { dist[c.nom] = {}; });
+  var cols = (tc.structure && tc.structure.colonnes) || [];
   tc.lignes.forEach(function(l) {
-    l._txt = tabNorm(l.onglet + ' ' + l.secteur + ' ' + cols.map(function(c) { return l.v[c.nom]; }).join(' ') + ' ' + (l.commentaire || ''));
-    cols.forEach(function(c) { var v = l.v[c.nom]; if (!tabVide(v)) dist[c.nom][String(v)] = (dist[c.nom][String(v)] || 0) + 1; });
+    l._txt = tabNorm(l.onglet + ' ' + cols.map(function(c) { return l.v[c.nom]; }).join(' ') + ' ' + (l.commentaire || ''));
   });
-  tc._dist = {};
-  Object.keys(dist).forEach(function(k) { tc._dist[k] = Object.keys(dist[k]).sort(function(a, b) { return a.localeCompare(b, 'fr', { numeric: true }); }); });
-  // Colonnes proposées en filtre : peu de valeurs différentes, mais au moins 2
-  // (≤ 12 valeurs, ou 1 seule valeur + des cases vides ; champs à saisir en premier ; 6 au plus)
-  var titreF = tabColTitre(st);
-  tc._filtres = cols.filter(function(c) {
-    var n = tc._dist[c.nom].length, vides = tc.lignes.some(function(l) { return tabVide(l.v[c.nom]); });
-    return c.nom !== titreF && (c.afficher || c.saisie || c.resume) && n <= 12 && (n >= 2 || (n === 1 && vides)) && n < Math.max(3, tc.lignes.length * 0.7);
-  }).sort(function(a, b) { return (b.saisie ? 1 : 0) - (a.saisie ? 1 : 0); }).slice(0, 6).map(function(c) { return c.nom; });
-  // Champs à compléter : suggestions si peu de valeurs texte
-  tc._sugg = {};
-  tabColsSaisie(st).forEach(function(c) {
-    var d = tc._dist[c.nom];
-    if (d.length && d.length <= 12 && !d.every(tabEstNombre)) tc._sugg[c.nom] = d;
-  });
+  tc._onglets = [];
+  tc.lignes.forEach(function(l) { if (tc._onglets.indexOf(l.onglet) === -1) tc._onglets.push(l.onglet); });
+  if (_tabFiltre.onglet && tc._onglets.indexOf(_tabFiltre.onglet) === -1) _tabFiltre.onglet = '';
+  if (!_tabFiltre.onglet && tc._onglets.length) _tabFiltre.onglet = tc._onglets[0];
 }
 
 function tabLignesFiltrees(tc) {
-  var f = _tabFiltre, q = tabNorm(f.q).trim(), titre = tabColTitre(tc.structure);
-  var out = [];
+  var f = _tabFiltre, q = tabNorm(f.q).trim(), out = [];
   tc.lignes.forEach(function(l, i) {
     if (f.onglet && l.onglet !== f.onglet) return;
     if (f.statut === 'afaire' && l.le) return;
-    if (f.statut === 'faites' && !l.le) return;
-    for (var k in f.cols) {
-      var w = f.cols[k];
-      if (w === '' || w === undefined) continue;
-      var v = tabVide(l.v[k]) ? '' : String(l.v[k]);
-      if (w === '__vide' ? v !== '' : v !== w) return;
-    }
     if (q && (l._txt || '').indexOf(q) === -1) return;
+    for (var k in f.cols) {
+      var w = f.cols[k]; if (!w) continue;
+      var v = k === '__com' ? l.commentaire : l.v[k];
+      if (w.indexOf(tabVide(v) ? '__vide' : String(v)) === -1) return;
+    }
     out.push({ l: l, i: i });
   });
-  if (f.tri === 'az') out.sort(function(a, b) { return String(a.l.v[titre] || '').localeCompare(String(b.l.v[titre] || ''), 'fr', { numeric: true }); });
-  if (f.tri === 'afaire') out.sort(function(a, b) { return (a.l.le ? 1 : 0) - (b.l.le ? 1 : 0) || a.i - b.i; });
+  if (f.tri && f.tri.col) {
+    var c = f.tri.col, s = f.tri.sens;
+    out.sort(function(a, b) {
+      var va = c === '__com' ? a.l.commentaire : a.l.v[c], vb = c === '__com' ? b.l.commentaire : b.l.v[c];
+      if (tabVide(va) !== tabVide(vb)) return tabVide(va) ? 1 : -1;
+      var na = tabEstNombre(va) && tabEstNombre(vb);
+      return s * (na ? Number(String(va).replace(',', '.')) - Number(String(vb).replace(',', '.')) : String(va).localeCompare(String(vb), 'fr', { numeric: true })) || a.i - b.i;
+    });
+  }
   return out;
 }
 
@@ -2488,241 +2496,249 @@ function renderTableurSaisie() {
   if (!tc || !c) return;
   var ttl = document.getElementById('tableur-saisie-titre');
   if (ttl) ttl.textContent = tc.t.titre;
-  var st = tc.structure, gere = hasRole('manager'), f = _tabFiltre;
-  var h = '';
+  var st = tc.structure, gere = tabEstGere(), f = _tabFiltre;
   var btns = [];
   if (tc.t.consigne) btns.push('<button class="btn btn-secondary btn-sm" onclick="var e=document.getElementById(\'tab-consigne\');e.style.display=e.style.display===\'none\'?\'block\':\'none\'">ℹ️ Consigne</button>');
   if (tc.t.url) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirTableur(\'' + tEsc(tc.id) + '\')">↗ Fichier</button>');
   if (gere) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirImportTableur(\'' + tEsc(tc.id) + '\')">📥 ' + (st ? 'Réimporter' : 'Importer') + '</button>');
+  if (gere) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirReglagesTableur(\'' + tEsc(tc.id) + '\')">⚙️</button>');
   if (st && (gere || hasRole('admin'))) btns.push('<button class="btn btn-secondary btn-sm" onclick="exporterTableur()">📤 Exporter</button>');
-  if (btns.length) h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' + btns.join('') + '</div>';
-  if (tc.t.consigne) h += '<div id="tab-consigne" style="display:' + (tc.lignes.some(function(l) { return l.le; }) ? 'none' : 'block') + ';font-size:12px;color:var(--dark-gray);background:var(--white);border-radius:10px;padding:10px 12px;margin-bottom:10px;line-height:1.5;white-space:pre-line">' + tEsc(tc.t.consigne) + '</div>';
+  var h = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">' + btns.join('') + '</div>';
+  if (tc.t.consigne) h += '<div id="tab-consigne" style="display:' + (tc.lignes.some(function(l) { return l.le; }) ? 'none' : 'block') + ';font-size:12px;color:var(--dark-gray);background:var(--white);border-radius:10px;padding:10px 12px;margin-bottom:8px;line-height:1.5;white-space:pre-line">' + tEsc(tc.t.consigne) + '</div>';
   if (!st) {
-    c.innerHTML = h + '<div class="empty-state"><div class="empty-state-icon">📑</div><div class="empty-state-title">Saisie non activée</div>' +
-      '<div class="empty-state-sub">' + (gere ? 'Importez le fichier Excel pour que les équipes le complètent dans l\'appli.' : 'Ce tableur se complète dans le fichier d\'origine.') + '</div></div>';
+    c.innerHTML = h + '<div class="empty-state"><div class="empty-state-icon">📑</div><div class="empty-state-title">Pas encore importé</div>' +
+      '<div class="empty-state-sub">' + (gere ? 'Importez le fichier Excel pour que les équipes le complètent ici.' : 'Ce tableur se complète dans le fichier d\'origine.') + '</div></div>';
     return;
   }
-  if (tc.etat) h += '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:8px">' + tEsc(tc.etat) + '</div>';
-  if (!tc._dist) tabPreparer(tc);
-  h += '<div id="tab-prog"></div>';
-  // Barre d'outils collante : recherche + statut + filtres
-  h += '<div style="position:sticky;top:0;z-index:5;background:var(--light-gray);padding:6px 0 8px;margin:0 -2px">' +
-    '<div style="display:flex;gap:6px">' +
-      '<input class="form-input" id="tab-saisie-q" type="search" placeholder="🔍 Rechercher…" value="' + tEsc(f.q) + '" oninput="tabRecherche(this.value)" style="flex:1;margin:0" />' +
-      '<button class="btn btn-sm ' + (f.panneau ? 'btn-primary' : 'btn-secondary') + '" id="tab-btn-filtres" onclick="_tabFiltre.panneau=!_tabFiltre.panneau;renderTableurSaisie()" style="white-space:nowrap">⚙️ Filtres<span id="tab-nb-filtres"></span></button>' +
-    '</div>' +
-    '<div id="tab-statuts" style="display:flex;gap:6px;margin-top:8px"></div>' +
-  '</div>';
-  if (f.panneau) h += tabPanneauFiltres(tc);
-  h += '<div id="tab-nb-res" style="font-size:11px;color:var(--dark-gray);margin:2px 0 6px"></div><div id="tab-liste"></div>';
-  h += Object.keys(tc._sugg || {}).map(function(k) {
-    var ci = (st.colonnes || []).map(function(c) { return c.nom; }).indexOf(k);
-    return '<datalist id="tabdl-' + ci + '">' + tc._sugg[k].map(function(v) { return '<option value="' + tEsc(v) + '">'; }).join('') + '</datalist>';
-  }).join('');
+  if (tc.etat) h += '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:6px">' + tEsc(tc.etat) + '</div>';
+  tabPreparer(tc);
+  // Barre d'outils : progression, recherche, « à faire », mode édition (manager)
+  h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
+    '<input class="form-input" type="search" placeholder="🔍 Rechercher…" value="' + tEsc(f.q) + '" oninput="tabRecherche(this.value)" style="flex:1;min-width:140px;margin:0;padding:8px 10px;font-size:13px" />' +
+    '<button class="btn btn-sm ' + (f.statut === 'afaire' ? 'btn-primary' : 'btn-secondary') + '" onclick="_tabFiltre.statut=_tabFiltre.statut===\'afaire\'?\'\':\'afaire\';renderTabGrille()" style="width:auto;white-space:nowrap">À faire</button>' +
+    (gere ? '<button class="btn btn-sm ' + (f.edition ? 'btn-primary' : 'btn-secondary') + '" onclick="_tabFiltre.edition=!_tabFiltre.edition;renderTableurSaisie()" style="width:auto;white-space:nowrap">✏️ Tout modifier</button>' : '') +
+  '</div>' +
+  (tabNbFiltres() ? '<button class="btn btn-sm btn-secondary" onclick="tabEffacerFiltres()" style="width:auto;margin-bottom:6px;color:#1D6F42;border-color:#1D6F42">✖ Effacer les filtres (' + tabNbFiltres() + ')</button>' : '') +
+  '<div id="tab-prog" style="font-size:11px;color:var(--dark-gray);margin-bottom:6px"></div>';
+  h += '<div id="tab-grille"></div>';
+  if (gere && f.edition) h += '<button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="ajouterLigneTableur()">➕ Ajouter une ligne' + (tc._onglets.length > 1 ? ' dans « ' + tEsc(f.onglet) + ' »' : '') + '</button>';
+  // Onglets en bas, comme dans Excel
+  if (tc._onglets.length > 1) {
+    h += '<div style="position:sticky;bottom:0;z-index:6;display:flex;gap:2px;overflow-x:auto;background:var(--light-gray);padding:6px 0 2px;margin-top:8px;border-top:1px solid var(--mid-gray)">' +
+      tc._onglets.map(function(o) {
+        var on = o === f.onglet;
+        return '<button data-o="' + tEsc(o) + '" onclick="_tabFiltre.onglet=this.dataset.o;_tabFiltre.page=TAB_PAGE;renderTableurSaisie()" style="flex-shrink:0;border:1px solid var(--mid-gray);border-top:0;border-radius:0 0 8px 8px;padding:6px 12px;font-size:12px;font-family:inherit;cursor:pointer;' +
+          (on ? 'background:var(--white);font-weight:700;color:#1D6F42;border-bottom:3px solid #1D6F42' : 'background:transparent;color:var(--dark-gray)') + '">' + tEsc(o) + '</button>';
+      }).join('') + '</div>';
+  }
   c.innerHTML = h;
-  tabMajEntete();
-  renderTabListe();
-}
-
-function tabPanneauFiltres(tc) {
-  var f = _tabFiltre, st = tc.structure, sel = function(lbl, attr, opts, val) {
-    return '<label style="display:block;font-size:11px;color:var(--dark-gray);margin-bottom:8px">' + tEsc(lbl) +
-      '<select class="form-select" ' + attr + ' style="margin-top:3px;font-size:13px;padding:7px 9px">' +
-      opts.map(function(o) { return '<option value="' + tEsc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + tEsc(o[1]) + '</option>'; }).join('') + '</select></label>';
-  };
-  var h = '<div class="stat-card full" style="padding:12px;margin-bottom:10px">';
-  var onglets = [];
-  tc.lignes.forEach(function(l) { if (onglets.indexOf(l.onglet) === -1) onglets.push(l.onglet); });
-  h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:0 10px">';
-  if (onglets.length > 1) h += sel('Onglet', 'onchange="_tabFiltre.onglet=this.value;tabFiltreChange()"', [['', 'Tous']].concat(onglets.map(function(o) { return [o, o]; })), f.onglet);
-  h += sel('Trier', 'onchange="_tabFiltre.tri=this.value;tabFiltreChange()"', [['', 'Ordre du fichier'], ['az', 'Titre A → Z'], ['afaire', 'À faire d\'abord']], f.tri);
-  (tc._filtres || []).forEach(function(nom) {
-    var vides = tc.lignes.some(function(l) { return tabVide(l.v[nom]); });
-    var opts = [['', 'Tous']].concat(tc._dist[nom].map(function(v) { return [v, v]; }));
-    if (vides) opts.push(['__vide', '(vide)']);
-    h += sel(nom, 'data-col="' + tEsc(nom) + '" onchange="_tabFiltre.cols[this.dataset.col]=this.value;tabFiltreChange()"', opts, f.cols[nom] || '');
-  });
-  h += '</div><button class="btn btn-secondary btn-sm" onclick="tabReinitFiltres()">Réinitialiser</button></div>';
-  return h;
+  renderTabGrille();
 }
 
 function tabRecherche(v) {
   clearTimeout(tabRecherche._t);
-  tabRecherche._t = setTimeout(function() { _tabFiltre.q = v; _tabFiltre.page = 40; _tabFiltre.ouvert = -1; renderTabListe(); }, 180);
-}
-function tabFiltreChange() { _tabFiltre.page = 40; _tabFiltre.ouvert = -1; tabMajEntete(); renderTabListe(); }
-function tabReinitFiltres() { _tabFiltre.onglet = ''; _tabFiltre.cols = {}; _tabFiltre.tri = ''; _tabFiltre.statut = ''; _tabFiltre.q = ''; _tabFiltre.page = 40; _tabFiltre.ouvert = -1; renderTableurSaisie(); }
-
-// Progression, boutons de statut et nombre de filtres actifs (sans tout redessiner)
-function tabMajEntete() {
-  var tc = _tabCourant, f = _tabFiltre;
-  if (!tc) return;
-  var tot = tc.lignes.length, faites = tc.lignes.filter(function(l) { return l.le; }).length;
-  var p = document.getElementById('tab-prog');
-  if (p && tot) p.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:4px"><span>' + faites + ' / ' + tot + ' complétée(s)</span><span>' + Math.round(100 * faites / tot) + '%</span></div>' +
-    '<div style="height:6px;background:var(--beige);border-radius:3px;margin-bottom:6px;overflow:hidden"><div style="height:100%;width:' + Math.round(100 * faites / tot) + '%;background:#2E8B57;transition:width .3s"></div></div>';
-  var s = document.getElementById('tab-statuts');
-  if (s) s.innerHTML = [['', 'Toutes', tot], ['afaire', 'À faire', tot - faites], ['faites', 'Faites', faites]].map(function(b) {
-    var on = f.statut === b[0];
-    return '<button class="btn btn-sm ' + (on ? 'btn-primary' : 'btn-secondary') + '" style="flex:1;padding:6px 4px" onclick="_tabFiltre.statut=\'' + b[0] + '\';tabFiltreChange()">' + b[1] + ' <b>' + b[2] + '</b></button>';
-  }).join('');
-  var n = (f.onglet ? 1 : 0) + Object.keys(f.cols).filter(function(k) { return f.cols[k]; }).length;
-  var nb = document.getElementById('tab-nb-filtres');
-  if (nb) nb.textContent = n ? ' (' + n + ')' : '';
+  tabRecherche._t = setTimeout(function() { _tabFiltre.q = v; _tabFiltre.page = TAB_PAGE; renderTabGrille(); }, 200);
 }
 
-function tabLigneHtml(o, ctx) {
-  var l = o.l, i = o.i, ouvert = _tabFiltre.ouvert === i;
-  var sous = ctx.resume.map(function(k) { return l.v[k]; }).filter(function(v) { return !tabVide(v); }).join(' · ');
-  if (ctx.plusieurs && !_tabFiltre.onglet) sous = l.onglet + (sous ? ' · ' + sous : '');
-  var dot = l._attente ? '#C27A12' : l.le ? '#2E8B57' : 'var(--mid-gray)';
-  return '<div class="stat-card full" id="tabr-' + i + '" style="padding:0;margin-bottom:8px;overflow:hidden;' + (ouvert ? 'box-shadow:0 0 0 2px #2E8B57,var(--shadow)' : '') + '">' +
-    '<div onclick="tabBasculer(' + i + ')" style="display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer">' +
-      '<span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:' + dot + '"></span>' +
-      '<div style="flex:1;min-width:0">' +
-        '<div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + tEsc(tabVide(l.v[ctx.titre]) ? '—' : l.v[ctx.titre]) + '</div>' +
-        (sous ? '<div style="font-size:11px;color:var(--dark-gray);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px">' + tEsc(sous) + '</div>' : '') +
-      '</div>' +
-      (l.commentaire ? '<span title="Commentaire" style="font-size:13px">💬</span>' : '') +
-      '<span style="color:var(--dark-gray);font-size:16px;transition:transform .2s;transform:rotate(' + (ouvert ? '90' : '0') + 'deg)">›</span>' +
-    '</div>' +
-    '<div id="tabb-' + i + '">' + (ouvert ? tabDetailHtml(i) : '') + '</div>' +
-  '</div>';
+function tabMajProgres() {
+  var tc = _tabCourant, p = document.getElementById('tab-prog');
+  if (!tc || !p) return;
+  var dans = tc.lignes.filter(function(l) { return !_tabFiltre.onglet || l.onglet === _tabFiltre.onglet; });
+  var faites = dans.filter(function(l) { return l.le; }).length;
+  p.innerHTML = '<b>' + faites + ' / ' + dans.length + '</b> ligne(s) complétée(s)' + (tc._onglets.length > 1 ? ' dans « ' + tEsc(_tabFiltre.onglet) + ' »' : '') +
+    ' · <span style="display:inline-block;width:10px;height:10px;background:#FFF3A0;border:1px solid #E0C200;vertical-align:-1px"></span> à remplir';
 }
 
-function renderTabListe() {
-  var tc = _tabCourant, box = document.getElementById('tab-liste');
+function renderTabGrille() {
+  var tc = _tabCourant, box = document.getElementById('tab-grille');
   if (!tc || !box) return;
-  var st = tc.structure, f = _tabFiltre, titre = tabColTitre(st);
-  var ctx = { titre: titre, resume: tabColsResume(st, titre), plusieurs: tc.lignes.some(function(l) { return l.onglet !== (tc.lignes[0] || {}).onglet; }) };
+  var st = tc.structure, cols = tabColsGrille(st), gere = tabEstGere(), edition = gere && _tabFiltre.edition;
+  var toutes = st.colonnes || [];
   var liste = tabLignesFiltrees(tc);
-  var nr = document.getElementById('tab-nb-res');
-  if (nr) nr.textContent = tc.lignes.length ? liste.length + ' ligne(s)' + (liste.length !== tc.lignes.length ? ' sur ' + tc.lignes.length : '') : '';
-  if (!liste.length) {
-    box.innerHTML = '<div class="empty-state"><div class="empty-state-icon">' + (tc.lignes.length ? '🔍' : '📭') + '</div><div class="empty-state-title">' +
-      (tc.lignes.length ? 'Aucune ligne ne correspond' : (tc.charge ? 'Aucune ligne pour votre secteur' : 'Chargement…')) + '</div>' +
-      (tc.lignes.length ? '<button class="btn btn-secondary btn-sm" style="margin-top:10px" onclick="tabReinitFiltres()">Réinitialiser les filtres</button>' : '') + '</div>';
-    return;
-  }
-  var page = liste.slice(0, f.page);
-  box.innerHTML = page.map(function(o) { return tabLigneHtml(o, ctx); }).join('') +
-    (liste.length > f.page ? '<button class="btn btn-secondary" id="tab-plus" style="width:100%;margin:4px 0 20px" onclick="_tabFiltre.page+=40;renderTabListe()">Afficher plus (' + (liste.length - f.page) + ' restantes)</button>' : '');
-  // Chargement automatique en bas de liste
-  var plus = document.getElementById('tab-plus');
-  if (plus && 'IntersectionObserver' in window) {
-    var io = new IntersectionObserver(function(en) { if (en[0].isIntersecting) { io.disconnect(); _tabFiltre.page += 40; renderTabListe(); } }, { rootMargin: '200px' });
-    io.observe(plus);
-  }
+  tabMajProgres();
+  var px = function(c) { var w = Number(c.largeur) || 120; return Math.max(70, Math.min(260, Math.round(w * 0.62))); };
+  var css = 'border:1px solid #D4D4D4;padding:0;font-size:12px;vertical-align:middle;';
+  var h = '<div style="overflow:auto;max-height:calc(100vh - 240px);border:1px solid #BFBFBF;border-radius:6px;background:#fff;-webkit-overflow-scrolling:touch">' +
+    '<table style="border-collapse:separate;border-spacing:0;table-layout:fixed;width:' + (30 + cols.reduce(function(t, c) { return t + px(c); }, 0) + (st.commentaire ? 170 : 0) + (edition ? 34 : 0)) + 'px"><colgroup><col style="width:30px">' +
+    cols.map(function(c) { return '<col style="width:' + px(c) + 'px">'; }).join('') +
+    (st.commentaire ? '<col style="width:170px">' : '') + (edition ? '<col style="width:34px">' : '') + '</colgroup><thead><tr>' +
+    '<th style="' + css + 'position:sticky;top:0;left:0;z-index:4;background:#F2F2F2"></th>' +
+    cols.map(function(c, k) {
+      var fond = tabFond(c.fondEntete) || '#F2F2F2';
+      return '<th style="' + css + 'position:sticky;top:0;z-index:' + (k === 0 ? 4 : 3) + ';' + (k === 0 ? 'left:30px;' : '') + 'background:' + fond + ';color:' + tabTexteSur(fond) + ';padding:6px;font-weight:700;text-align:left;white-space:normal;line-height:1.25">' +
+        '<div style="display:flex;gap:4px;align-items:flex-start"><span style="flex:1">' + tEsc(c.nom) + (c.saisie ? ' ✏️' : '') + '</span>' + tabBoutonFiltre(c.nom, fond) + '</div></th>';
+    }).join('') +
+    (st.commentaire ? '<th style="' + css + 'position:sticky;top:0;z-index:3;background:#FFF3A0;padding:6px;text-align:left"><div style="display:flex;gap:4px"><span style="flex:1">' + tEsc(st.libelleCommentaire || 'Commentaire') + ' ✏️</span>' + tabBoutonFiltre('__com', 'FFF3A0') + '</div></th>' : '') +
+    (edition ? '<th style="' + css + 'position:sticky;top:0;z-index:3;background:#F2F2F2"></th>' : '') +
+    '</tr></thead><tbody>';
+  h += liste.slice(0, _tabFiltre.page).map(function(o) {
+    var l = o.l, i = o.i;
+    var dot = l._attente ? '#C27A12' : l.le ? '#2E8B57' : '#C8C5BE';
+    var r = '<tr id="tabr-' + i + '"><td style="' + css + 'position:sticky;left:0;z-index:2;background:#F2F2F2;text-align:center" title="' + tEsc(l.le ? 'Modifié par ' + (l.par || '?') + ' le ' + l.le : 'Pas encore complété') + '">' +
+      '<span id="tabd-' + i + '" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + dot + '"></span></td>';
+    cols.forEach(function(c, k) {
+      var ci = toutes.indexOf(c), v = l.v[c.nom], fond = tabFond(c.fondCellule);
+      var collant = k === 0 ? 'position:sticky;left:30px;z-index:1;' : '';
+      if (c.saisie || edition) {
+        var jaune = c.saisie ? '#FFF3A0' : (fond || '#fff');
+        r += '<td style="' + css + collant + 'background:' + jaune + '"><input data-i="' + i + '" data-ci="' + ci + '" value="' + tEsc(v) + '"' +
+          (tabEstNombre(v) || (c.saisie && tabVide(v)) ? ' inputmode="decimal"' : '') +
+          ' onchange="tabCellule(this)" style="width:100%;border:0;background:transparent;padding:7px 6px;font-size:13px;font-family:inherit;color:inherit;outline-offset:-2px" /></td>';
+      } else {
+        r += '<td style="' + css + collant + 'padding:6px;background:' + (fond || '#fff') + ';color:' + tabTexteSur(fond || 'FFFFFF') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + tEsc(v) + '">' + tEsc(v) + '</td>';
+      }
+    });
+    if (st.commentaire) r += '<td style="' + css + 'background:#FFF3A0"><input data-i="' + i + '" data-com="1" value="' + tEsc(l.commentaire) + '" onchange="tabCellule(this)" placeholder="…" style="width:100%;border:0;background:transparent;padding:7px 6px;font-size:13px;font-family:inherit" /></td>';
+    if (edition) r += '<td style="' + css + 'text-align:center;background:#fff"><button onclick="supprimerLigneTableur(' + i + ')" title="Supprimer la ligne" style="border:0;background:none;font-size:14px;cursor:pointer">🗑</button></td>';
+    return r + '</tr>';
+  }).join('');
+  h += '</tbody></table></div>';
+  if (!liste.length) h += '<div class="empty-state"><div class="empty-state-icon">' + (tc.lignes.length ? '🔍' : '📭') + '</div><div class="empty-state-title">' +
+    (tc.lignes.length ? 'Aucune ligne ne correspond' : (tc.charge ? 'Aucune ligne pour votre secteur' : 'Chargement…')) + '</div></div>';
+  if (liste.length > _tabFiltre.page) h += '<button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="_tabFiltre.page+=TAB_PAGE;renderTabGrille()">Afficher ' + Math.min(TAB_PAGE, liste.length - _tabFiltre.page) + ' lignes de plus (' + (liste.length - _tabFiltre.page) + ' restantes)</button>';
+  box.innerHTML = h;
 }
 
-function tabBasculer(i) {
-  var f = _tabFiltre, ancien = f.ouvert;
-  f.ouvert = ancien === i ? -1 : i;
-  if (ancien > -1) {
-    var b0 = document.getElementById('tabb-' + ancien), r0 = document.getElementById('tabr-' + ancien);
-    if (b0) b0.innerHTML = '';
-    if (r0) { r0.style.boxShadow = ''; var ch0 = r0.firstChild.lastChild; if (ch0) ch0.style.transform = 'rotate(0deg)'; }
-  }
-  if (f.ouvert > -1) {
-    var b = document.getElementById('tabb-' + i), r = document.getElementById('tabr-' + i);
-    if (b) b.innerHTML = tabDetailHtml(i);
-    if (r) {
-      r.style.boxShadow = '0 0 0 2px #2E8B57,var(--shadow)';
-      var ch = r.firstChild.lastChild; if (ch) ch.style.transform = 'rotate(90deg)';
-      setTimeout(function() { try { r.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {} }, 30);
-    }
-  }
-}
-
-function tabDetailHtml(i) {
-  var tc = _tabCourant, l = tc.lignes[i], st = tc.structure, cols = st.colonnes || [];
-  var titre = tabColTitre(st), saisie = tabColsSaisie(st);
-  var h = '<div style="padding:0 14px 14px;border-top:1px solid var(--beige)">';
-  var infos = tabColsInfo(st).filter(function(c) { return c.nom !== titre && !tabVide(l.v[c.nom]); });
-  if (infos.length || l.onglet) {
-    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px 12px;padding:10px 0">' +
-      (tc.lignes.some(function(x) { return x.onglet !== l.onglet; }) ? '<div><div style="font-size:10px;color:var(--dark-gray);text-transform:uppercase;letter-spacing:.03em">Onglet</div><div style="font-size:12px;font-weight:600">' + tEsc(l.onglet) + '</div></div>' : '') +
-      infos.map(function(c) {
-        return '<div style="min-width:0"><div style="font-size:10px;color:var(--dark-gray);text-transform:uppercase;letter-spacing:.03em">' + tEsc(c.nom) + '</div>' +
-          '<div style="font-size:12px;font-weight:600;word-break:break-word">' + tEsc(l.v[c.nom]) + '</div></div>';
-      }).join('') + '</div>';
-  }
-  if (saisie.length) {
-    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;padding-top:4px">' + saisie.map(function(c) {
-      var ci = cols.indexOf(c);
-      var num = tc.lignes.every(function(x) { return tabVide(x.v[c.nom]) || tabEstNombre(x.v[c.nom]); });
-      return '<label style="font-size:11px;font-weight:600;color:var(--charcoal);display:block">' + tEsc(c.nom) +
-        '<input class="form-input" data-ci="' + ci + '" value="' + tEsc(l.v[c.nom]) + '"' + (num ? ' inputmode="decimal"' : '') +
-        (tc._sugg && tc._sugg[c.nom] ? ' list="tabdl-' + ci + '"' : '') +
-        ' oninput="tabModifiee(' + i + ')" style="margin-top:3px;font-size:14px;padding:8px 10px" /></label>';
-    }).join('') + '</div>';
-  }
-  if (st.commentaire) {
-    h += '<label style="display:block;font-size:11px;font-weight:600;margin-top:10px">' + tEsc(st.libelleCommentaire || 'Commentaire') +
-      '<textarea class="form-input" data-com="1" rows="2" placeholder="Champ libre…" oninput="tabModifiee(' + i + ')" style="margin-top:3px;font-size:13px;resize:vertical">' + tEsc(l.commentaire) + '</textarea></label>';
-  }
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-top:10px">' +
-    '<div id="tabl-pied-' + i + '" style="flex:1;font-size:11px;color:var(--dark-gray)">' + tabPied(l) + '</div>' +
-    '<button class="btn btn-secondary btn-sm" onclick="tabBasculer(' + i + ')">Fermer</button>' +
-    '<button class="btn btn-primary btn-sm" id="tabl-btn-' + i + '" onclick="enregistrerLigneTableur(' + i + ')" disabled style="opacity:.45">Enregistrer</button>' +
-  '</div></div>';
-  return h;
-}
-
-function tabPied(l) {
-  if (!l.le) return 'Pas encore complété';
-  return (l._attente ? '⏳ En attente d\'envoi · ' : '✅ ') + (l.par ? tEsc(l.par) + ' · ' : '') + tEsc(l.le);
-}
-
-function tabModifiee(i) {
-  var b = document.getElementById('tabl-btn-' + i);
-  if (b) { b.disabled = false; b.style.opacity = '1'; }
+// ── Saisie : une case modifiée → la ligne part au Sheet (regroupé sur 0,8 s)
+var _tabEnvois = {};
+function tabCellule(el) {
+  var tc = _tabCourant; if (!tc) return;
+  var i = Number(el.dataset.i), l = tc.lignes[i]; if (!l) return;
+  var val = el.value.trim();
+  if (el.dataset.com) l.commentaire = val;
+  else { var c = (tc.structure.colonnes || [])[Number(el.dataset.ci)]; if (!c) return; l.v[c.nom] = val; (l._modif = l._modif || {})[c.nom] = true; }
+  if (el.dataset.com) l._modifCom = true;
+  l._attente = true;
+  var d = document.getElementById('tabd-' + i); if (d) d.style.background = '#C27A12';
+  clearTimeout(_tabEnvois[i]);
+  _tabEnvois[i] = setTimeout(function() { enregistrerLigneTableur(i); }, 800);
 }
 
 function enregistrerLigneTableur(i) {
-  var tc = _tabCourant;
-  if (!tc) return;
-  var l = tc.lignes[i], card = document.getElementById('tabb-' + i);
-  if (!l || !card) return;
-  var cols = tc.structure.colonnes || [], valeurs = {};
-  card.querySelectorAll('[data-ci]').forEach(function(el) {
-    var cc = cols[Number(el.dataset.ci)];
-    if (!cc) return;
-    valeurs[cc.nom] = el.value.trim();
-    l.v[cc.nom] = el.value.trim();
-  });
-  var com = card.querySelector('[data-com]');
+  var tc = _tabCourant; if (!tc) return;
+  var l = tc.lignes[i]; if (!l) return;
+  var valeurs = {};
+  Object.keys(l._modif || {}).forEach(function(k) { valeurs[k] = l.v[k]; });
   var payload = { action: 'tableurSaisir', tableurId: tc.id, cle: l.cle, name: tc.id + '|' + l.cle, valeurs: valeurs };
-  if (com) { payload.commentaire = com.value.trim(); l.commentaire = payload.commentaire; }
-  l.par = currentAccount ? currentAccount.name : ''; l.le = tabMaintenant(); l._attente = true;
-  var cleAtt = tc.id + '|' + l.cle, att = tabAttente();
-  att[cleAtt] = { valeurs: valeurs, commentaire: payload.commentaire, par: l.par, le: l.le };
-  tabAttenteSet(att);
-  tabPreparer(tc);
+  if (l._modifCom) payload.commentaire = l.commentaire || '';
+  l._modif = {}; l._modifCom = false;
+  l.par = currentAccount ? currentAccount.name : ''; l.le = tabMaintenant();
+  var cleAtt = tc.id + '|' + l.cle, att = tabAttente(), prec = att[cleAtt] || { valeurs: {} };
+  Object.keys(valeurs).forEach(function(k) { prec.valeurs[k] = valeurs[k]; });
+  if (payload.commentaire !== undefined) prec.commentaire = payload.commentaire;
+  prec.par = l.par; prec.le = l.le;
+  att[cleAtt] = prec; tabAttenteSet(att);
   tabSauverCache(tc);
-  // Ligne suivante à faire ouverte automatiquement (saisie en série)
-  var liste = tabLignesFiltrees(tc), pos = -1;
-  liste.forEach(function(o, k) { if (o.i === i) pos = k; });
-  var suivante = liste.slice(pos + 1).concat(pos > -1 ? [] : liste).filter(function(o) { return !o.l.le; })[0];
-  _tabFiltre.ouvert = -1;
-  tabMajEntete();
-  renderTabListe();
-  if (suivante) tabBasculer(suivante.i);
+  tabMajProgres();
   apiPost(payload, { queue: true }).then(function(ok) {
     if (ok) {
       var a2 = tabAttente(); delete a2[cleAtt]; tabAttenteSet(a2);
       l._attente = false; tabSauverCache(tc);
-      if (_tabCourant === tc) {
-        var r = document.getElementById('tabr-' + i);
-        var dot = r && r.firstChild && r.firstChild.firstChild;
-        if (dot) dot.style.background = '#2E8B57';
-        var p2 = document.getElementById('tabl-pied-' + i);
-        if (p2) p2.innerHTML = tabPied(l);
-      }
-    }
-    showToast(ok ? '✅ Ligne enregistrée' : '📴 Enregistrée sur le téléphone — envoi à la reconnexion');
+      var d = document.getElementById('tabd-' + i); if (d && _tabCourant === tc) d.style.background = '#2E8B57';
+    } else showToast('📴 Enregistré sur le téléphone — envoi à la reconnexion');
     try { logEvent('tableur-saisie', tc.t.titre); } catch (e) {}
   });
+}
+
+// ── Lignes (manager)
+function ajouterLigneTableur() {
+  var tc = _tabCourant; if (!tc || !tabEstGere()) return;
+  if (!navigator.onLine) { showToast('⚠️ Connexion requise pour ajouter une ligne'); return; }
+  var onglet = _tabFiltre.onglet || (tc._onglets[0] || (tc.structure.onglets || [''])[0] || 'Feuille');
+  apiPostJSON({ action: 'tableurLigne', op: 'ajouter', id: tc.id, onglet: onglet }).then(function(res) {
+    if (!res || res.status !== 'ok') { showToast('⚠️ ' + ((res && res.message) || 'Ajout impossible')); return; }
+    var v = {}; (tc.structure.colonnes || []).forEach(function(c) { v[c.nom] = ''; });
+    tc.lignes.push({ cle: res.cle, onglet: onglet, secteur: res.secteur || '', v: v, commentaire: '', par: '', le: '' });
+    _tabFiltre.q = ''; _tabFiltre.statut = ''; _tabFiltre.page = 1e6;
+    tabSauverCache(tc);
+    renderTableurSaisie();
+    var champ = document.querySelector('#tabr-' + (tc.lignes.length - 1) + ' input');
+    if (champ) { champ.scrollIntoView({ block: 'center' }); champ.focus(); }
+  }).catch(function() { showToast('⚠️ Échec réseau'); });
+}
+function supprimerLigneTableur(i) {
+  var tc = _tabCourant; if (!tc || !tabEstGere()) return;
+  var l = tc.lignes[i]; if (!l) return;
+  var nom = (tabColsGrille(tc.structure)[0] || {}).nom;
+  if (!confirm('Supprimer la ligne « ' + (l.v[nom] || '(vide)') + ' » ?')) return;
+  apiPostJSON({ action: 'tableurLigne', op: 'supprimer', id: tc.id, cle: l.cle }).then(function(res) {
+    if (!res || res.status !== 'ok') { showToast('⚠️ ' + ((res && res.message) || 'Suppression impossible')); return; }
+    tc.lignes.splice(i, 1);
+    tabSauverCache(tc);
+    renderTabGrille();
+    showToast('🗑 Ligne supprimée');
+  }).catch(function() { showToast('⚠️ Échec réseau'); });
+}
+
+// Réglages du tableur (titre, consigne, échéance, visibilité) = sa fiche dans la liste
+function ouvrirReglagesTableur(id) {
+  var idx = -1;
+  refListe('tableurs').forEach(function(x, k) { if (String(x.id) === String(id)) idx = k; });
+  ouvrirListeConfig('tableurs');
+  if (idx > -1) setTimeout(function() { editerElementConfig(idx); }, 50);
+}
+
+// ── Filtres « comme Excel » : ▾ sur chaque en-tête (valeurs à cocher + tri)
+function tabNbFiltres() { var f = _tabFiltre; return Object.keys(f.cols || {}).filter(function(k) { return f.cols[k]; }).length + (f.tri && f.tri.col ? 1 : 0); }
+function tabValeurs(nom) {
+  var tc = _tabCourant, vus = {}, vide = false;
+  tc.lignes.forEach(function(l) {
+    if (_tabFiltre.onglet && l.onglet !== _tabFiltre.onglet) return;
+    var v = nom === '__com' ? l.commentaire : l.v[nom];
+    if (tabVide(v)) vide = true; else vus[String(v)] = (vus[String(v)] || 0) + 1;
+  });
+  var l = Object.keys(vus).sort(function(a, b) { return a.localeCompare(b, 'fr', { numeric: true }); }).map(function(v) { return [v, v, vus[v]]; });
+  if (vide) l.push(['__vide', '(vide)', 0]);
+  return l;
+}
+var _tabFiltreCol = '';
+function ouvrirFiltreColonne(nom) {
+  var tc = _tabCourant; if (!tc) return;
+  _tabFiltreCol = nom;
+  var vals = tabValeurs(nom), sel = _tabFiltre.cols[nom], tri = _tabFiltre.tri || {};
+  var lib = nom === '__com' ? (tc.structure.libelleCommentaire || 'Commentaire') : nom;
+  var h = '<div style="font-size:15px;font-weight:700;margin-bottom:10px">▾ ' + tEsc(lib) + '</div>' +
+    '<div style="display:flex;gap:6px;margin-bottom:10px">' +
+      '<button class="btn btn-sm ' + (tri.col === nom && tri.sens > 0 ? 'btn-primary' : 'btn-secondary') + '" style="flex:1" onclick="tabTrier(1)">Trier A → Z</button>' +
+      '<button class="btn btn-sm ' + (tri.col === nom && tri.sens < 0 ? 'btn-primary' : 'btn-secondary') + '" style="flex:1" onclick="tabTrier(-1)">Trier Z → A</button></div>';
+  if (vals.length > 8) h += '<input class="form-input" placeholder="🔍 Chercher une valeur…" oninput="tabFiltrerValeurs(this.value)" style="margin-bottom:8px" />';
+  h += '<label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:700;padding:6px 0;border-bottom:1px solid var(--beige)"><input type="checkbox" id="tabfv-tout" ' + (!sel ? 'checked' : '') +
+    ' onchange="[].forEach.call(document.querySelectorAll(\'.tabfv\'),function(c){if(c.parentNode.style.display!==\'none\')c.checked=this.checked}.bind(this))"> (Tout sélectionner)</label>' +
+    '<div style="max-height:45vh;overflow-y:auto">' + vals.map(function(v) {
+      var on = !sel || sel.indexOf(v[0]) > -1;
+      return '<label data-txt="' + tEsc(tabNorm(v[1])) + '" style="display:flex;gap:8px;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px solid var(--beige)">' +
+        '<input type="checkbox" class="tabfv" value="' + tEsc(v[0]) + '"' + (on ? ' checked' : '') + '> <span style="flex:1;word-break:break-word">' + tEsc(v[1]) + '</span>' +
+        (v[2] ? '<span style="font-size:11px;color:var(--dark-gray)">' + v[2] + '</span>' : '') + '</label>';
+    }).join('') + '</div>' +
+    '<button class="btn btn-primary" style="margin-top:12px" onclick="tabAppliquerFiltre()">Appliquer</button>' +
+    '<button class="btn btn-secondary" style="margin-top:8px" onclick="delete _tabFiltre.cols[_tabFiltreCol];if(_tabFiltre.tri&&_tabFiltre.tri.col===_tabFiltreCol)_tabFiltre.tri=null;fermerModalParam();renderTableurSaisie()">Effacer le filtre de cette colonne</button>';
+  ouvrirModalParam(h);
+}
+function tabFiltrerValeurs(q) {
+  q = tabNorm(q).trim();
+  [].forEach.call(document.querySelectorAll('#param-modal label[data-txt]'), function(el) { el.style.display = !q || el.getAttribute('data-txt').indexOf(q) > -1 ? '' : 'none'; });
+}
+function tabAppliquerFiltre() {
+  var cases = [].slice.call(document.querySelectorAll('.tabfv'));
+  var coches = cases.filter(function(c) { return c.checked; }).map(function(c) { return c.value; });
+  if (coches.length === cases.length) delete _tabFiltre.cols[_tabFiltreCol];
+  else _tabFiltre.cols[_tabFiltreCol] = coches;
+  _tabFiltre.page = TAB_PAGE;
+  fermerModalParam();
+  renderTableurSaisie();
+}
+function tabTrier(sens) {
+  _tabFiltre.tri = { col: _tabFiltreCol, sens: sens };
+  fermerModalParam();
+  renderTableurSaisie();
+}
+function tabEffacerFiltres() { _tabFiltre.cols = {}; _tabFiltre.tri = null; _tabFiltre.statut = ''; _tabFiltre.q = ''; _tabFiltre.page = TAB_PAGE; renderTableurSaisie(); }
+
+function tabBoutonFiltre(nom, fond) {
+  var actif = !!_tabFiltre.cols[nom] || (_tabFiltre.tri && _tabFiltre.tri.col === nom);
+  var sens = _tabFiltre.tri && _tabFiltre.tri.col === nom ? (_tabFiltre.tri.sens > 0 ? '↑' : '↓') : '';
+  return '<button data-col="' + tEsc(nom) + '" onclick="ouvrirFiltreColonne(this.dataset.col)" title="Filtrer / trier" style="flex-shrink:0;border:1px solid ' + (actif ? '#1D6F42' : 'rgba(0,0,0,.25)') + ';border-radius:4px;' +
+    'background:' + (actif ? '#1D6F42' : 'rgba(255,255,255,.85)') + ';color:' + (actif ? '#fff' : '#2E3139') + ';font-size:10px;line-height:1;padding:3px 4px;cursor:pointer">' + (actif ? (sens || '⧩') : '▾') + '</button>';
 }
 
 // ── Export Excel (manager / admin) : un onglet par onglet d'origine
@@ -2758,32 +2774,48 @@ function exporterTableur() {
   }).catch(function() { showToast('⚠️ Échec réseau'); });
 }
 
-// ── Assistant d'import (manager)
+// ── Import d'un fichier Excel (manager) : un seul écran, aperçu « comme Excel »
+// Sans identifiant = nouveau tableur (créé à la publication).
 var _tabImp = null;
 
+function nouveauTableur() { if (hasRole('manager')) ouvrirImportTableur(''); }
+
 function ouvrirImportTableur(id) {
-  var t = tableursListe().filter(function(x) { return x.id === id; })[0];
-  if (!t) return;
-  var st = tableurStructure(id);
-  _tabImp = { id: id, t: t, wb: null, fichier: '', feuilles: [], aoa: {}, onglets: [], entete: {}, colonnes: [],
+  if (!hasRole('manager')) return;
+  var t = id ? tableursListe().filter(function(x) { return x.id === id; })[0] : null;
+  if (id && !t) return;
+  var st = id ? tableurStructure(id) : null;
+  _tabImp = { id: id || '', t: t, nouveau: !id, titre: t ? t.titre : '', wb: null, fichier: '', feuilles: [], aoa: {}, onglets: [], entete: {}, colonnes: [],
     secteurSource: '', commentaire: st ? !!st.commentaire : true, libCom: (st && st.libelleCommentaire) || 'Commentaire', ancien: st };
   goTo('screen-tableur-import');
 }
 
 function lireFichierTableur(input) {
   var f = input.files && input.files[0];
+  input.value = '';                                   // permet de rechoisir le même fichier
   if (!f || !_tabImp) return;
   if (typeof XLSX === 'undefined') { showToast('⚠️ Module Excel indisponible (connexion ?)'); return; }
   var r = new FileReader();
   r.onload = function(e) {
     try {
-      var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
-      _tabImp.wb = wb; _tabImp.fichier = f.name; _tabImp.feuilles = wb.SheetNames.slice(); _tabImp.aoa = {};
-      _tabImp.onglets = wb.SheetNames.slice();
-      _tabImp.entete = {};
-      var ref = _tabImp.onglets[0];
-      _tabImp.entete[ref] = tabDevinerEntete(tabAoa(ref));
-      tabRecalculerColonnes(true);
+      var I = _tabImp;
+      var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true, cellStyles: true });
+      I.wb = wb; I.fichier = f.name; I.feuilles = wb.SheetNames.slice(); I.aoa = {}; I.entete = {}; I.colonnes = []; I.secteurSource = '';
+      if (I.nouveau && !I.titre) I.titre = f.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim();
+      // Feuilles retenues : celles qui partagent le même tableau (ex. une feuille par secteur),
+      // sans la feuille de synthèse. Une seule feuille → on la garde.
+      var debut = {};
+      I.feuilles.forEach(function(nom) {
+        var aoa = tabAoa(nom), e2 = tabDevinerEntete(aoa);
+        debut[nom] = (aoa[e2] || []).filter(function(v) { return v !== ''; })[0] || '';
+      });
+      var compte = {};
+      I.feuilles.forEach(function(nom) { if (debut[nom]) compte[debut[nom]] = (compte[debut[nom]] || 0) + 1; });
+      var majo = Object.keys(compte).sort(function(a, b) { return compte[b] - compte[a]; })[0];
+      I.onglets = (majo && compte[majo] > 1) ? I.feuilles.filter(function(nom) { return debut[nom] === majo; }) : [I.feuilles[0]];
+      if (I.ancien && I.ancien.onglets) { var anc = I.feuilles.filter(function(nom) { return I.ancien.onglets.indexOf(nom) > -1; }); if (anc.length) I.onglets = anc; }
+      I.entete[I.onglets[0]] = tabDevinerEntete(tabAoa(I.onglets[0]));
+      tabRecalculerColonnes();
       renderTabImport();
     } catch (err) { showToast('⚠️ Fichier illisible : ' + err.message); }
   };
@@ -2853,115 +2885,156 @@ function tabLignesOnglet(nom) {
   return out;
 }
 
-function tabRecalculerColonnes(defauts) {
+// Couleurs et largeurs d'origine d'une feuille (pour reproduire l'Excel)
+function tabRgb(cell) {
+  var s = cell && cell.s;
+  if (!s || s.patternType !== 'solid' || !s.fgColor || !s.fgColor.rgb) return '';
+  return String(s.fgColor.rgb).slice(-6).toUpperCase();
+}
+function tabEstJaune(rgb) {
+  if (!/^[0-9A-F]{6}$/.test(rgb || '')) return false;
+  var r = parseInt(rgb.substr(0, 2), 16), g = parseInt(rgb.substr(2, 2), 16), b = parseInt(rgb.substr(4, 2), 16);
+  return r > 200 && g > 190 && b < 170;
+}
+function tabStylesOnglet(nom) {
+  var ws = _tabImp.wb.Sheets[nom], out = {};
+  if (!ws) return out;
+  var rg = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: { r: 0, c: 0 } };
+  var e = tabEnteteOnglet(nom), aoa = tabAoa(nom), cols = ws['!cols'] || [];
+  tabEntetes(nom).forEach(function(hh) {
+    var adr = function(r) { return XLSX.utils.encode_cell({ r: r + rg.s.r, c: hh.j + rg.s.c }); };
+    var fonds = {}, jaunes = 0, n = 0;
+    for (var r = e + 1; r < Math.min(aoa.length, e + 40); r++) {
+      if (!aoa[r].some(function(v) { return v !== ''; })) continue;
+      var f = tabRgb(ws[adr(r)]); n++;
+      if (f) fonds[f] = (fonds[f] || 0) + 1;
+      if (tabEstJaune(f)) jaunes++;
+    }
+    var principal = Object.keys(fonds).sort(function(a, b) { return fonds[b] - fonds[a]; })[0] || '';
+    out[hh.nom] = { fondEntete: tabRgb(ws[adr(e)]), fondCellule: principal && fonds[principal] >= n / 2 ? principal : '',
+      largeur: (cols[hh.j + rg.s.c] && cols[hh.j + rg.s.c].wpx) || 0, jaune: n ? jaunes / n : 0 };
+  });
+  return out;
+}
+
+function tabRecalculerColonnes() {
   var I = _tabImp, anciennes = {};
   if (I.ancien) (I.ancien.colonnes || []).forEach(function(c) { anciennes[c.nom] = c; });
-  var noms = [];
-  I.onglets.forEach(function(o) { tabEntetes(o).forEach(function(hh) { if (noms.indexOf(hh.nom) === -1) noms.push(hh.nom); }); });
-  var ref = I.onglets[0], lignesRef = ref ? tabLignesOnglet(ref) : [];
-  var nbL = lignesRef.length || 1;
-  var rempli = function(n) { return lignesRef.filter(function(l) { return l.v[n]; }).length / nbL; };
-  I.colonnes = noms.map(function(n, k) {
-    if (anciennes[n]) return { nom: n, afficher: anciennes[n].afficher, saisie: anciennes[n].saisie, titre: !!anciennes[n].titre, resume: !!anciennes[n].resume };
-    var r = rempli(n);
-    return { nom: n, afficher: r > 0, saisie: false, titre: false, resume: false };
+  var noms = [], styles = {};
+  I.onglets.forEach(function(o) {
+    var so = tabStylesOnglet(o);
+    tabEntetes(o).forEach(function(hh) { if (noms.indexOf(hh.nom) === -1) { noms.push(hh.nom); styles[hh.nom] = so[hh.nom] || {}; } });
   });
-  // Titre : 1re colonne remplie à 90 % ; résumé : les 2 suivantes bien remplies
-  if (!I.colonnes.some(function(c) { return c.titre; })) {
-    var t = I.colonnes.filter(function(c) { return !c.saisie && rempli(c.nom) >= 0.9; })[0] || I.colonnes[0];
-    if (t) { t.titre = true; t.afficher = true; }
-    if (!I.colonnes.some(function(c) { return c.resume; }))
-      I.colonnes.filter(function(c) { return !c.titre && !c.saisie && rempli(c.nom) >= 0.5 && (lignesRef.length < 2 || new Set(lignesRef.map(function(l) { return l.v[c.nom]; })).size > 1); })
-        .slice(0, 2).forEach(function(c) { c.resume = true; });
-  }
+  var ref = I.onglets[0], lignesRef = ref ? tabLignesOnglet(ref) : [], nbL = lignesRef.length || 1;
+  I.colonnes = noms.map(function(n) {
+    var s = styles[n] || {}, a = anciennes[n];
+    var vide = lignesRef.filter(function(l) { return l.v[n]; }).length === 0;
+    return { nom: n, saisie: a ? !!a.saisie : s.jaune >= 0.5, masquee: a ? !!a.masquee : false,
+      fondEntete: s.fondEntete || '', fondCellule: tabEstJaune(s.fondCellule) ? '' : (s.fondCellule || ''), largeur: s.largeur || Math.min(260, 60 + 7 * n.length), _vide: vide };
+  });
   if (!I.secteurSource || (I.secteurSource.indexOf('col:') === 0 && noms.indexOf(I.secteurSource.slice(4)) === -1)) {
     var colSect = noms.filter(function(n) { return /secteur/i.test(n); })[0];
-    I.secteurSource = (I.ancien && I.ancien.secteurSource && defauts) ? I.ancien.secteurSource
-      : colSect ? 'col:' + colSect : (I.onglets.length > 1 ? 'onglet' : 'aucun');
+    I.secteurSource = (I.ancien && I.ancien.secteurSource) ? I.ancien.secteurSource
+      : I.onglets.length > 1 ? 'onglet' : colSect ? 'col:' + colSect : 'aucun';
   }
+}
+
+// Touche sur un en-tête : normale → à remplir → masquée → normale
+function tabCycleColonne(k) {
+  var c = _tabImp.colonnes[k];
+  if (!c.saisie && !c.masquee) c.saisie = true;
+  else if (c.saisie) { c.saisie = false; c.masquee = true; }
+  else c.masquee = false;
+  renderTabImport();
 }
 
 function renderTabImport() {
   var c = document.getElementById('tableur-import-content'), I = _tabImp;
   if (!c || !I) return;
   var ttl = document.getElementById('tableur-import-titre');
-  if (ttl) ttl.textContent = 'Importer — ' + I.t.titre;
-  var h = '<div style="font-size:12px;color:var(--dark-gray);line-height:1.5;margin-bottom:12px">Choisissez le fichier Excel : ses lignes seront copiées dans l\'appli pour que chacun complète celles de son secteur. ' +
-    (I.ancien ? '<b>Un réimport remplace les saisies déjà faites</b> : exportez-les d\'abord si besoin.' : '') + '</div>' +
-    '<label class="btn btn-secondary" style="display:block;text-align:center;margin-bottom:14px">📂 ' + (I.wb ? 'Changer de fichier (' + tEsc(I.fichier) + ')' : 'Choisir le fichier Excel') +
-    '<input type="file" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="lireFichierTableur(this)" /></label>';
-  if (!I.wb) { c.innerHTML = h; return; }
+  if (ttl) ttl.textContent = I.nouveau ? 'Nouveau tableur' : 'Réimporter — ' + I.t.titre;
   var sec = function(t) { return '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 8px">' + t + '</div>'; };
+  var h = '<label class="form-label">Titre du tableur</label><input class="form-input" value="' + tEsc(I.titre) + '" oninput="_tabImp.titre=this.value" placeholder="ex. Présence chevalet Darty" style="margin-bottom:10px" />' +
+    '<label class="btn btn-secondary" style="display:block;text-align:center">📂 ' + (I.wb ? 'Changer de fichier (' + tEsc(I.fichier) + ')' : 'Choisir le fichier Excel') +
+    '<input type="file" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="lireFichierTableur(this)" /></label>';
+  if (I.ancien) h += '<div style="font-size:11px;color:var(--warning);margin-top:6px">Réimporter remplace les lignes : les saisies déjà faites sont effacées (exportez-les avant si besoin).</div>';
+  if (!I.wb) { c.innerHTML = h; return; }
 
-  h += sec('1. Onglets à reprendre');
-  h += I.feuilles.map(function(o) {
-    return '<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0"><input type="checkbox" data-o="' + tEsc(o) + '" ' + (I.onglets.indexOf(o) > -1 ? 'checked' : '') +
-      ' onchange="tabBasculerOnglet(this.dataset.o,this.checked)" /> ' + tEsc(o) + '</label>';
-  }).join('');
-  if (!I.onglets.length) { c.innerHTML = h + '<div style="font-size:12px;color:var(--brand)">Cochez au moins un onglet.</div>'; return; }
+  // Feuilles
+  if (I.feuilles.length > 1) {
+    h += sec('Feuilles à reprendre') + '<div style="display:flex;flex-wrap:wrap;gap:6px">' + I.feuilles.map(function(o) {
+      var on = I.onglets.indexOf(o) > -1;
+      return '<button class="btn btn-sm ' + (on ? 'btn-primary' : 'btn-secondary') + '" data-o="' + tEsc(o) + '" onclick="tabBasculerOnglet(this.dataset.o,' + (!on) + ')" style="width:auto">' + (on ? '✓ ' : '') + tEsc(o) + '</button>';
+    }).join('') + '</div>';
+  }
+  if (!I.onglets.length) { c.innerHTML = h + '<div style="font-size:12px;color:var(--brand);margin-top:8px">Choisissez au moins une feuille.</div>'; return; }
 
+  // Ligne des titres
   var ref = I.onglets[0], aoa = tabAoa(ref), e = tabEnteteOnglet(ref);
-  h += sec('2. Ligne des titres de colonnes') +
-    '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px">Onglet « ' + tEsc(ref) + ' » — touchez la ligne qui contient les titres. Les autres onglets suivent automatiquement.</div>';
-  h += aoa.slice(0, 15).map(function(r, i) {
-    var txt = r.filter(function(v) { return v !== ''; }).join(' | ');
-    var on = i === e;
-    return '<div onclick="tabChoisirEntete(' + i + ')" style="cursor:pointer;font-size:11px;padding:6px 8px;border-radius:6px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' +
-      (on ? 'background:#2E8B57;color:#fff;font-weight:700' : 'background:var(--beige)') + '">' + (i + 1) + '. ' + (txt ? tEsc(txt) : '<i>(vide)</i>') + '</div>';
-  }).join('');
+  h += sec('Aperçu' + (I.onglets.length > 1 ? ' — ' + tEsc(ref) : '')) +
+    '<div style="display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:8px"><span style="white-space:nowrap">Ligne des titres :</span>' +
+    '<select class="form-select" onchange="tabChoisirEntete(Number(this.value))" style="font-size:12px;padding:6px 8px;margin:0">' +
+    aoa.slice(0, 25).map(function(r, i) {
+      var txt = r.filter(function(v) { return v !== ''; }).join(' | ');
+      return '<option value="' + i + '"' + (i === e ? ' selected' : '') + '>' + (i + 1) + '. ' + tEsc((txt || '(vide)').slice(0, 70)) + '</option>';
+    }).join('') + '</select></div>' +
+    '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px;line-height:1.5">Touchez l\'en-tête d\'une colonne : <b style="background:#FFF3A0;padding:0 4px">à remplir</b> → <s>masquée</s> → normale. Les colonnes jaunes du fichier sont déjà cochées.</div>';
 
-  var g = 'display:grid;grid-template-columns:1fr 42px 50px 52px 58px;gap:2px;align-items:center';
-  h += sec('3. Colonnes') +
-    '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px;line-height:1.45"><b>Titre</b> : nom de la ligne dans la liste · <b>Résumé</b> : infos visibles sans ouvrir la ligne · <b>Détail</b> : infos visibles en ouvrant la ligne · <b>À saisir</b> : champs que l\'équipe complète.</div>' +
-    '<div style="' + g + ';font-size:10px;font-weight:700;color:var(--dark-gray);padding-bottom:4px;text-align:center"><span style="text-align:left">Colonne</span><span>Titre</span><span>Résumé</span><span>Détail</span><span>À saisir</span></div>' +
+  // Grille d'aperçu (12 premières lignes)
+  var lignes = tabLignesOnglet(ref).slice(0, 12), css = 'border:1px solid #D4D4D4;font-size:11px;padding:5px;';
+  var px = function(col) { return Math.max(70, Math.min(220, Math.round((Number(col.largeur) || 120) * 0.55))); };
+  h += '<div style="overflow:auto;max-height:360px;border:1px solid #BFBFBF;border-radius:6px;background:#fff"><table style="border-collapse:collapse;table-layout:fixed"><thead><tr>' +
     I.colonnes.map(function(col, k) {
-      var cb = function(champ, extra) { return '<span style="text-align:center"><input type="checkbox" ' + (col[champ] ? 'checked' : '') + ' onchange="_tabImp.colonnes[' + k + '].' + champ + '=this.checked' + (extra || '') + '" /></span>'; };
-      return '<div style="' + g + ';font-size:12px;padding:5px 0;border-bottom:1px solid var(--beige)">' +
-        '<span style="word-break:break-word">' + tEsc(col.nom) + '</span>' +
-        '<span style="text-align:center"><input type="radio" name="tab-titre" ' + (col.titre ? 'checked' : '') + ' onchange="_tabImp.colonnes.forEach(function(c,x){c.titre=x===' + k + ';});_tabImp.colonnes[' + k + '].afficher=true;renderTabImport()" /></span>' +
-        cb('resume') + cb('afficher') + cb('saisie') + '</div>';
-    }).join('');
+      var fond = col.saisie ? '#FFE45C' : col.masquee ? '#E0E0E0' : (tabFond(col.fondEntete) || '#F2F2F2');
+      return '<th onclick="tabCycleColonne(' + k + ')" style="' + css + 'width:' + px(col) + 'px;min-width:' + px(col) + 'px;cursor:pointer;text-align:left;vertical-align:top;background:' + fond + ';color:' + (col.masquee ? '#999' : tabTexteSur(fond)) + '">' +
+        (col.masquee ? '<s>' + tEsc(col.nom) + '</s>' : tEsc(col.nom)) + (col.saisie ? ' ✏️' : '') + '</th>';
+    }).join('') + '</tr></thead><tbody>' +
+    lignes.map(function(l) {
+      return '<tr>' + I.colonnes.map(function(col) {
+        var fond = col.saisie ? '#FFF3A0' : (tabFond(col.fondCellule) || '#fff');
+        return '<td style="' + css + 'background:' + fond + ';' + (col.masquee ? 'color:#bbb;' : '') + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:' + px(col) + 'px">' + tEsc(l.v[col.nom]) + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
 
-  h += sec('4. Qui voit quelle ligne ?') +
+  // Visibilité et commentaire
+  h += sec('Qui voit quelle ligne ?') +
     '<select class="form-select" onchange="_tabImp.secteurSource=this.value;renderTabImport()">' +
       '<option value="aucun"' + (I.secteurSource === 'aucun' ? ' selected' : '') + '>Tout le monde voit toutes les lignes</option>' +
-      (I.onglets.length > 1 ? '<option value="onglet"' + (I.secteurSource === 'onglet' ? ' selected' : '') + '>Un onglet par secteur (nom de l\'onglet = secteur)</option>' : '') +
+      (I.onglets.length > 1 ? '<option value="onglet"' + (I.secteurSource === 'onglet' ? ' selected' : '') + '>Une feuille par secteur (nom de la feuille = secteur)</option>' : '') +
       I.colonnes.map(function(col) { var v = 'col:' + col.nom; return '<option value="' + tEsc(v) + '"' + (I.secteurSource === v ? ' selected' : '') + '>Le secteur est dans la colonne « ' + tEsc(col.nom) + ' »</option>'; }).join('') +
-    '</select>' +
-    '<div style="font-size:11px;color:var(--dark-gray);margin-top:4px">Le manager et l\'admin voient toujours tout.</div>';
+    '</select><div style="font-size:11px;color:var(--dark-gray);margin-top:4px">Le manager et l\'admin voient toujours tout.</div>' +
+    '<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px"><input type="checkbox" ' + (I.commentaire ? 'checked' : '') + ' onchange="_tabImp.commentaire=this.checked;renderTabImport()" /> Ajouter une colonne de commentaire libre</label>' +
+    (I.commentaire ? '<input class="form-input" value="' + tEsc(I.libCom) + '" oninput="_tabImp.libCom=this.value" placeholder="Titre de la colonne" style="margin-top:6px" />' : '');
 
-  h += sec('5. Commentaire libre') +
-    '<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" ' + (I.commentaire ? 'checked' : '') + ' onchange="_tabImp.commentaire=this.checked;renderTabImport()" /> Ajouter un champ de commentaire sur chaque ligne</label>' +
-    (I.commentaire ? '<input class="form-input" value="' + tEsc(I.libCom) + '" oninput="_tabImp.libCom=this.value" placeholder="Libellé du champ" style="margin-top:6px" />' : '');
-
-  var total = 0, detail = I.onglets.map(function(o) { var n = tabLignesOnglet(o).length; total += n; return tEsc(o) + ' : ' + n; });
-  h += sec('6. Aperçu') + '<div style="font-size:12px;line-height:1.6">' + total + ' ligne(s) — ' + detail.join(' · ') + '</div>' +
-    '<button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="importerTableur()">📥 Importer dans l\'appli</button>';
+  var total = 0;
+  I.onglets.forEach(function(o) { total += tabLignesOnglet(o).length; });
+  var nbS = I.colonnes.filter(function(col) { return col.saisie; }).length;
+  h += '<div style="font-size:12px;line-height:1.6;margin-top:14px;padding:10px;border-radius:8px;background:var(--white)"><b>' + total + '</b> ligne(s) · <b>' + I.onglets.length + '</b> feuille(s) · <b>' + nbS + '</b> colonne(s) à remplir' + (I.commentaire ? ' + commentaire' : '') + '</div>' +
+    '<button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="importerTableur()">✅ Publier le tableur</button>';
   c.innerHTML = h;
 }
 
 function tabBasculerOnglet(o, on) {
   var I = _tabImp, i = I.onglets.indexOf(o);
-  if (on && i === -1) { I.onglets = I.feuilles.filter(function(f) { return f === o || I.onglets.indexOf(f) > -1; }); }
+  if (on && i === -1) I.onglets = I.feuilles.filter(function(f) { return f === o || I.onglets.indexOf(f) > -1; });
   if (!on && i > -1) I.onglets.splice(i, 1);
-  if (I.onglets.length && I.entete[I.onglets[0]] === undefined) {
-    I.entete = {}; I.entete[I.onglets[0]] = tabDevinerEntete(tabAoa(I.onglets[0]));
-  }
-  if (I.onglets.length) tabRecalculerColonnes(false);
+  if (I.onglets.length && I.entete[I.onglets[0]] === undefined) { I.entete = {}; I.entete[I.onglets[0]] = tabDevinerEntete(tabAoa(I.onglets[0])); }
+  if (I.onglets.length) tabRecalculerColonnes();
   renderTabImport();
 }
-
 function tabChoisirEntete(i) {
   var I = _tabImp;
   I.entete = {}; I.entete[I.onglets[0]] = i;
-  tabRecalculerColonnes(false);
+  tabRecalculerColonnes();
   renderTabImport();
 }
 
 function importerTableur() {
   var I = _tabImp;
   if (!I || !I.onglets.length || !I.colonnes.length) return;
-  if (!I.colonnes.some(function(c) { return c.saisie; }) && !I.commentaire) { showToast('⚠️ Cochez au moins une colonne « À compléter » ou le commentaire'); return; }
+  var titre = String(I.titre || '').trim();
+  if (!titre) { showToast('⚠️ Donnez un titre au tableur'); return; }
+  if (!I.colonnes.some(function(c) { return c.saisie; }) && !I.commentaire) { showToast('⚠️ Touchez au moins un en-tête pour le mettre « à remplir », ou gardez le commentaire'); return; }
   if (I.ancien && !confirm('Remplacer le tableur déjà importé ?\nLes saisies faites dans l\'appli seront effacées.')) return;
   if (!navigator.onLine) { showToast('⚠️ Connexion requise'); return; }
   var noms = I.colonnes.map(function(c) { return c.nom; }), lignes = [];
@@ -2971,11 +3044,23 @@ function importerTableur() {
       lignes.push({ cle: o + '|' + l.ligne, onglet: o, secteur: sect, v: noms.map(function(n) { return l.v[n] !== undefined ? l.v[n] : ''; }) });
     });
   });
-  if (!lignes.length) { showToast('⚠️ Aucune ligne trouvée sous les titres choisis'); return; }
-  var structure = { fichier: I.fichier, onglets: I.onglets, colonnes: I.colonnes, secteurSource: I.secteurSource,
-    commentaire: !!I.commentaire, libelleCommentaire: (I.libCom || 'Commentaire').trim() };
-  showToast('⏳ Import de ' + lignes.length + ' ligne(s)…');
-  apiPostJSON({ action: 'tableurImporter', id: I.id, structure: structure, colonnes: noms, lignes: lignes }).then(function(res) {
+  if (!lignes.length) { showToast('⚠️ Aucune ligne sous la ligne des titres choisie'); return; }
+  // Nouveau tableur : on crée sa fiche (titre) ; tableur existant : on met à jour le titre si besoin
+  var liste = refListe('tableurs').slice(), changeListe = false;
+  if (I.nouveau) {
+    I.id = 'tab_' + Date.now().toString(36);
+    liste.push({ id: I.id, titre: titre, sousTitre: '', url: '', consigne: '', echeance: '', roles: [], secteurs: [], ordre: '', actif: 'oui' });
+    changeListe = true;
+  } else {
+    liste = liste.map(function(x) { if (String(x.id) === I.id && x.titre !== titre) { changeListe = true; return Object.assign({}, x, { titre: titre }); } return x; });
+  }
+  var structure = { version: 2, fichier: I.fichier, onglets: I.onglets, secteurSource: I.secteurSource, commentaire: !!I.commentaire, libelleCommentaire: (I.libCom || 'Commentaire').trim(),
+    colonnes: I.colonnes.map(function(c) { return { nom: c.nom, saisie: !!c.saisie, masquee: !!c.masquee, fondEntete: c.fondEntete, fondCellule: c.fondCellule, largeur: c.largeur }; }) };
+  showToast('⏳ Publication de ' + lignes.length + ' ligne(s)…');
+  var etapeListe = changeListe ? (db.tableurs = liste, saveDB(), envoyerTableConfig('tableurs')) : Promise.resolve(true);
+  Promise.resolve(etapeListe).then(function() {
+    return apiPostJSON({ action: 'tableurImporter', id: I.id, structure: structure, colonnes: noms, lignes: lignes });
+  }).then(function(res) {
     if (!res || res.status !== 'ok') { showToast('⚠️ ' + ((res && res.message) || 'Import impossible')); return; }
     if (!db.tableursStructures) db.tableursStructures = {};
     db.tableursStructures[I.id] = res.structure || structure;
@@ -2984,18 +3069,13 @@ function importerTableur() {
     var att = tabAttente();
     Object.keys(att).forEach(function(k) { if (k.indexOf(I.id + '|') === 0) delete att[k]; });
     tabAttenteSet(att);
-    showToast('✅ Tableur importé — saisie activée');
+    showToast('✅ Tableur publié');
+    var id = I.id;
     _tabImp = null;
-    ouvrirTableurSaisie(I.id);
+    ouvrirTableurSaisie(id);
   }).catch(function() { showToast('⚠️ Échec réseau'); });
 }
 
-// Création d'un tableur depuis l'écran Tableurs (même fiche que dans Paramétrage)
-function nouveauTableur() {
-  if (!hasRole('manager')) return;
-  ouvrirListeConfig('tableurs');
-  setTimeout(function() { editerElementConfig(-1); }, 50);
-}
 
 // Ouvre le fichier hors de l'appli (indispensable sur iPhone pour la connexion Microsoft)
 function ouvrirTableur(id) {
@@ -3698,6 +3778,12 @@ function afficherApercuImport() {
       '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:18px">' + d.icone + '</span><b style="flex:1">' + escHtml(d.titre) + '</b>' +
       '<span style="font-size:12px;color:' + (x.erreurs.length ? 'var(--warning)' : 'var(--success)') + '">' + x.lignes.length + ' ligne(s) OK' + (x.erreurs.length ? ' · ' + x.erreurs.length + ' erreur(s)' : '') + '</span></div>';
     if (x.erreurs.length) h += '<div style="font-size:11px;color:var(--warning);margin-top:6px;line-height:1.5">' + x.erreurs.slice(0, 6).map(escHtml).join('<br>') + (x.erreurs.length > 6 ? '<br>…' : '') + '</div>';
+    // Erreur fréquente : un fichier à compléter importé ici au lieu de l'écran Tableurs
+    if (x.nom === 'tableurs' && !x.lignes.length && x.erreurs.some(function(e) { return e.indexOf('colonnes introuvables') === 0; })) {
+      h += '<div style="font-size:12px;line-height:1.5;margin-top:8px;padding:10px;border-radius:8px;background:var(--light-gray)">' +
+        'Ce fichier ressemble à un tableur <b>à compléter</b>, pas à la <b>liste</b> des tableurs. Pour le charger dans l\'appli : écran <b>Tableurs</b> › carte du tableur › <b>📥 Importer l\'Excel</b>.' +
+        '<button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="fermerModalParam();goTo(\'screen-tableurs\')">Aller à l\'écran Tableurs</button></div>';
+    }
     if (d.remplacable && x.lignes.length) h += '<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:8px"><input type="checkbox" id="imp-rempl-' + i + '"> Remplacer entièrement (sinon : mise à jour + ajout)</label>';
     h += '</div>';
   });
@@ -4952,6 +5038,7 @@ var liste = offresDe(_editItoEnseigne);
   document.getElementById('offre-sous-titre').value = o.sousTitre || '';
   document.getElementById('offre-contenu').value = o.contenu || '';
   apercuITO();
+  renderPiecesComm();
 }
 
 function changerOffreView(i) {
@@ -4973,6 +5060,146 @@ function nouvelleOffreITO() {
   renderEditOffres();
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// COMMUNICATIONS : images dans le texte + pièces jointes (v5.7)
+// Image : repère « [image:ID] » sur sa propre ligne du contenu.
+// Pièces jointes : o.pieces = [{ id, nom, mime, taille }] (fichiers sur le Drive).
+// ══════════════════════════════════════════════════════════════════════
+var COMM_MAX = 15 * 1024 * 1024;
+var COMM_IMG = /^\s*\[image:([\w-]{10,})\]\s*$/;
+function commImageUrl(id) { return 'https://lh3.googleusercontent.com/d/' + id + '=w1200'; }
+function commFichierUrl(id) { return 'https://drive.google.com/file/d/' + id + '/view'; }
+function commTaille(o) { return o < 1024 * 1024 ? Math.max(1, Math.round(o / 1024)) + ' Ko' : (o / 1024 / 1024).toFixed(1).replace('.', ',') + ' Mo'; }
+function commIcone(mime, nom) {
+  var n = String(nom || '').toLowerCase();
+  if (/pdf/.test(mime) || /\.pdf$/.test(n)) return '📕';
+  if (/sheet|excel/.test(mime) || /\.xlsx?$|\.csv$/.test(n)) return '📗';
+  if (/word|document/.test(mime) || /\.docx?$/.test(n)) return '📘';
+  if (/presentation|powerpoint/.test(mime) || /\.pptx?$/.test(n)) return '📙';
+  if (/^image\//.test(mime)) return '🖼️';
+  return '📎';
+}
+function commOffreEdit() { return offresDe(_editItoEnseigne)[_editItoIndex] || null; }
+
+function commLireFichier(f) {
+  return new Promise(function(ok, ko) { var r = new FileReader(); r.onload = function() { ok(r.result); }; r.onerror = ko; r.readAsDataURL(f); });
+}
+function commEnvoyer(nom, dataUrl) {
+  return apiPostJSON({ action: 'uploadCommFichier', nom: nom, data: dataUrl }).then(function(res) {
+    if (!res || res.status !== 'ok') throw new Error((res && res.message) || 'Envoi impossible');
+    return res;
+  });
+}
+
+// ── Éditeur : image insérée à l'endroit du curseur
+function insererImageComm(input) {
+  var f = input.files && input.files[0]; input.value = '';
+  if (!f) return;
+  if (!navigator.onLine) { showToast('⚠️ Connexion requise pour ajouter une image'); return; }
+  showToast('⏳ Envoi de l\'image…');
+  reduireImage(f, 1400, 900000).then(function(url) { return commEnvoyer(f.name, url); }).then(function(res) {
+    var ta = document.getElementById('offre-contenu');
+    var v = ta.value, pos = typeof ta.selectionStart === 'number' ? ta.selectionStart : v.length;
+    var avant = v.slice(0, pos), apres = v.slice(pos);
+    var bloc = (avant && !/\n$/.test(avant) ? '\n' : '') + '[image:' + res.id + ']' + (apres && !/^\n/.test(apres) ? '\n' : '');
+    ta.value = avant + bloc + apres;
+    apercuITO();
+    showToast('✅ Image insérée — pensez à enregistrer');
+  }).catch(function(e) { showToast('⚠️ ' + e.message); });
+}
+
+// ── Éditeur : pièces jointes
+function ajouterPieceComm(input) {
+  var fichiers = [].slice.call(input.files || []); input.value = '';
+  var o = commOffreEdit();
+  if (!o || !fichiers.length) { if (!o) showToast('⚠️ Créez d\'abord une communication'); return; }
+  if (!navigator.onLine) { showToast('⚠️ Connexion requise pour joindre un fichier'); return; }
+  var trop = fichiers.filter(function(f) { return f.size > COMM_MAX; });
+  if (trop.length) { showToast('⚠️ ' + trop[0].name + ' dépasse 15 Mo'); return; }
+  if (!Array.isArray(o.pieces)) o.pieces = [];
+  var suite = Promise.resolve();
+  fichiers.forEach(function(f, k) {
+    suite = suite.then(function() {
+      showToast('⏳ Envoi ' + (k + 1) + '/' + fichiers.length + ' : ' + f.name);
+      return commLireFichier(f).then(function(url) { return commEnvoyer(f.name, url); }).then(function(res) {
+        o.pieces.push({ id: res.id, nom: res.nom, mime: res.mime || f.type, taille: res.taille || f.size });
+        saveDB(); renderPiecesComm();
+      });
+    });
+  });
+  suite.then(function() { showToast('✅ Pièce(s) jointe(s) ajoutée(s) — pensez à enregistrer'); })
+       .catch(function(e) { showToast('⚠️ ' + e.message); });
+}
+function retirerPieceComm(k) {
+  var o = commOffreEdit(); if (!o || !o.pieces) return;
+  if (!confirm('Retirer « ' + o.pieces[k].nom + ' » ?')) return;
+  o.pieces.splice(k, 1); saveDB(); renderPiecesComm();
+}
+function renderPiecesComm() {
+  var c = document.getElementById('offre-pieces'); if (!c) return;
+  var o = commOffreEdit(), l = (o && o.pieces) || [];
+  c.innerHTML = l.length ? l.map(function(p, k) {
+    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--white);border-radius:10px;margin-bottom:6px;font-size:13px">' +
+      '<span>' + commIcone(p.mime, p.nom) + '</span><a href="' + commFichierUrl(p.id) + '" target="_blank" rel="noopener" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit">' + escHtml(p.nom) + '</a>' +
+      '<span style="font-size:11px;color:var(--dark-gray)">' + commTaille(p.taille || 0) + '</span>' +
+      '<button onclick="retirerPieceComm(' + k + ')" title="Retirer" style="border:0;background:none;cursor:pointer;font-size:14px">✕</button></div>';
+  }).join('') : '<div style="font-size:12px;color:var(--dark-gray)">Aucune pièce jointe.</div>';
+}
+
+// ── Affichage (CDS) : pièces jointes sous le contenu
+function piecesCommHtml(o) {
+  var l = (o && o.pieces) || [];
+  if (!l.length) return '';
+  return '<div class="stat-card full mb-16"><div style="font-size:12px;font-weight:700;margin-bottom:8px">📎 Pièces jointes</div>' + l.map(function(p) {
+    return '<a href="' + commFichierUrl(p.id) + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--beige);font-size:13px;color:inherit;text-decoration:none">' +
+      '<span>' + commIcone(p.mime, p.nom) + '</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(p.nom) + '</span>' +
+      '<span style="font-size:11px;color:var(--dark-gray)">' + commTaille(p.taille || 0) + ' ↗</span></a>';
+  }).join('') + '</div>';
+}
+
+// ── Envoi avec les vrais fichiers joints : partage du téléphone / de Windows
+function commPartageFichiersPossible() {
+  try { return !!(navigator.canShare && navigator.share && navigator.canShare({ files: [new File(['x'], 'x.txt', { type: 'text/plain' })] })); } catch (e) { return false; }
+}
+var _commPartage = null;
+function proposerEnvoiComm(o, emails, sujet, texteLiens, texteSansLiens, ouvrirMailClassique) {
+  if (!(o.pieces || []).length || !commPartageFichiersPossible()) { ouvrirMailClassique(); return; }
+  _commPartage = { o: o, emails: emails, sujet: sujet, texte: texteSansLiens, fichiers: null, classique: ouvrirMailClassique };
+  var h = '<div style="font-size:15px;font-weight:700;margin-bottom:8px">Envoyer « ' + escHtml(sujet) + ' »</div>' +
+    '<div style="font-size:12px;color:var(--dark-gray);line-height:1.5;margin-bottom:12px">' + o.pieces.length + ' pièce(s) jointe(s) · ' + emails.length + ' destinataire(s)</div>' +
+    '<button class="btn btn-primary mb-8" id="comm-btn-partage" onclick="partagerComm()">📎 Avec les fichiers joints</button>' +
+    '<div id="comm-partage-etat" style="font-size:11px;color:var(--dark-gray);line-height:1.5;margin:-2px 0 12px">Ouvre le partage : choisissez Outlook ou Mail. Les adresses seront copiées : collez-les en CCI.</div>' +
+    '<button class="btn btn-secondary mb-8" onclick="fermerModalParam();_commPartage.classique()">🔗 Avec des liens de téléchargement</button>' +
+    '<button class="btn btn-secondary" onclick="fermerModalParam()">Annuler</button>';
+  ouvrirModalParam(h);
+  // Les fichiers sont préparés tout de suite : le partage doit partir d'un geste de l'utilisateur
+  Promise.all(o.pieces.map(function(p) {
+    return apiPostJSON({ action: 'getCommFichier', id: p.id }).then(function(res) {
+      if (!res || res.status !== 'ok') throw new Error((res && res.message) || p.nom);
+      var bin = atob(res.data), a = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+      return new File([a], res.nom || p.nom, { type: res.mime || p.mime || 'application/octet-stream' });
+    });
+  })).then(function(fichiers) {
+    if (!_commPartage) return;
+    _commPartage.fichiers = fichiers;
+    var e = document.getElementById('comm-partage-etat'); if (e) e.textContent = '✅ Fichiers prêts. Les adresses seront copiées : collez-les en CCI.';
+  }).catch(function(err) {
+    var e = document.getElementById('comm-partage-etat'); if (e) e.textContent = '⚠️ Fichiers indisponibles (' + err.message + ') : utilisez l\'envoi avec liens.';
+    var b = document.getElementById('comm-btn-partage'); if (b) b.disabled = true;
+  });
+}
+function partagerComm() {
+  var P0 = _commPartage; if (!P0) return;
+  if (!P0.fichiers) { showToast('⏳ Fichiers en préparation, réessayez dans un instant'); return; }
+  try { navigator.clipboard.writeText(P0.emails.join('; ')); } catch (e) {}
+  var donnees = { title: P0.sujet, text: P0.texte, files: P0.fichiers };
+  if (!navigator.canShare(donnees)) { showToast('⚠️ Ces fichiers ne peuvent pas être partagés : envoi avec liens'); fermerModalParam(); P0.classique(); return; }
+  navigator.share(donnees).then(function() {
+    fermerModalParam(); showToast('📋 Adresses copiées : collez-les en CCI');
+  }).catch(function(e) { if (e && e.name !== 'AbortError') showToast('⚠️ Partage impossible : ' + e.message); });
+}
+
 // ── Tableaux collés depuis Excel dans les offres ITO ──
 // Excel copie les cellules en texte séparé par des tabulations : chaque suite
 // de lignes contenant une tabulation devient un tableau.
@@ -4990,7 +5217,10 @@ function blocsITO(txt) {
 
 function contenuITOHtml(txt) {
   return blocsITO(txt).map(function(b) {
-    if (!b.tab) return linkify(escHtml(b.lignes.join('\n')));
+    if (!b.tab) return b.lignes.map(function(l) {
+      var m = l.match(COMM_IMG);
+      return m ? '<img src="' + commImageUrl(m[1]) + '" alt="" loading="lazy" style="display:block;max-width:100%;height:auto;border-radius:8px;margin:4px 0">' : linkify(escHtml(l));
+    }).join('\n');
     var rows = b.lignes.map(function(l) { return l.split('\t'); });
     var nb = Math.max.apply(null, rows.map(function(r) { return r.length; }));
     // On retire les colonnes vides en fin de tableau (fréquent en copiant depuis Excel)
@@ -5013,7 +5243,7 @@ function contenuITOHtml(txt) {
 // Version texte pour le mail (le mail ne sait pas afficher un tableau)
 function contenuITOTexte(txt) {
   return blocsITO(txt).map(function(b) {
-    if (!b.tab) return b.lignes.join('\n');
+    if (!b.tab) return b.lignes.map(function(l) { var m = l.match(COMM_IMG); return m ? '🖼️ ' + commFichierUrl(m[1]) : l; }).join('\n');
     return b.lignes.map(function(l) {
       return l.split('\t').map(function(c) { return c.trim(); }).filter(function(c, i, a) {
         return c || a.slice(i).some(function(x) { return x.trim(); });
@@ -5174,6 +5404,7 @@ function renderOffresITO() {
     if (o.contenu) {
       html += '<div class="stat-card full mb-16" style="white-space:pre-wrap;line-height:1.6;font-size:13px">' + contenuITOHtml(o.contenu) + '</div>';
     }
+    html += piecesCommHtml(o);
   }
   if (!hasContent) { html += '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Aucune offre disponible</div></div>'; }
   else { html += '<button class="btn btn-primary mb-12" onclick="envoyerMailOffres()" style="background:var(--charcoal)">✉️ Envoyer ces offres par e-mail</button>'; }
@@ -5334,10 +5565,15 @@ var texte = 'Bonjour,\n\n' + (o.titre || '') + '\n' + (o.sousTitre || '') + '\n\
   if (o.contenu) {
     texte += contenuITOTexte(o.contenu) + '\n\n';
   }
+  var texteSansLiens = texte + 'Cordialement,';
+  var pieces = o.pieces || [];
+  if (pieces.length) texte += 'Pièces jointes :\n' + pieces.map(function(p) { return '• ' + p.nom + ' : ' + commFichierUrl(p.id); }).join('\n') + '\n\n';
   texte += 'Cordialement,';
-var sujetText = encodeURIComponent(o.titre || P('libOffres'));
+  var sujet = o.titre || P('libOffres');
+var sujetText = encodeURIComponent(sujet);
   var bodyText = encodeURIComponent(texte);
   var bcc = encodeURIComponent(emails.join(','));
+  var mailClassique = function() {
  var isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
  if (isMobile) {
     window.location.href = 'mailto:' + decodeURIComponent(bcc) + '?subject=' + sujetText + '&body=' + bodyText;
@@ -5346,6 +5582,8 @@ var sujetText = encodeURIComponent(o.titre || P('libOffres'));
     window.open('https://outlook.office365.com/mail/deeplink/compose?to=' + bcc + '&subject=' + sujetText + '&body=' + bodyText, '_blank');
     showToast('💡 Pensez à déplacer les adresses en CCI dans Outlook');
   }
+  };
+  proposerEnvoiComm(o, emails, sujet, texte, texteSansLiens, mailClassique);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -8789,7 +9027,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.6.1-beta';
+var APP_VERSION = 'v5.7.0-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
