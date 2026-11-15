@@ -915,7 +915,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
       </div>
     </div>
 
-    <div class="section-label">&#127942; Classement du mois</div>
+    <div class="section-label" id="home-ranking-titre">&#127942; Classement du mois</div>
     <div id="home-ranking" class="fade-up" style="margin-bottom:16px"></div>
   </div>
 </div>
@@ -1396,6 +1396,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   </div>
   <div class="content">
     <div style="font-size:12px;color:var(--dark-gray);margin-bottom:14px;line-height:1.5">Un rôle personnalisé = un nom + les accès cochés. Il s'attribue ensuite dans « Gérer les comptes », comme les autres rôles.</div>
+    <div data-reglages="Formateur" style="margin-bottom:12px"></div>
     <div id="roles-list"></div>
     <div id="role-form-panel" style="display:none;background:var(--white);border-radius:var(--radius);padding:18px;margin-top:16px;box-shadow:var(--shadow)"></div>
   </div>
@@ -1540,6 +1541,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     <button id="btn-add-promo" class="btn btn-primary btn-sm" onclick="showPromoForm(null)" style="width:auto;display:none">+ Ajouter</button>
   </div>
   <div class="content">
+    <div data-reglages="Promos" style="margin-bottom:10px"></div>
     <button id="btn-mail-promos" class="btn btn-primary" onclick="ouvrirMailPromosModal()" style="margin-bottom:14px">📧 Envoyer les promos par mail</button>
     <!-- Enseigne filters -->
     <div class="section-label">Enseigne</div>
@@ -2121,18 +2123,18 @@ var PARAM_DEFS = [
   { k: 'mention', lbl: "Mention en bas de l'écran d'ouverture", g: 'Marque', aide: 'Ex. le nom de votre agence' },
   { k: 'couleur', lbl: 'Couleur principale', g: 'Marque', type: 'couleur', aide: 'Code couleur, ex. #CC0000' },
   { k: 'logo', lbl: "Logo de l'écran d'ouverture", g: 'Marque', type: 'image', aide: 'Importé depuis l’application (pas depuis Excel)' },
-  { k: 'libOffres', lbl: 'Nom du module Offres', g: 'Libellés', aide: 'Ex. Offres ITO' },
-  { k: 'libOffresTuile', lbl: 'Nom de la tuile Offres', g: 'Libellés' },
-  { k: 'libOffresAccueil', lbl: "Titre de l'encart Offres de l'accueil", g: 'Libellés' },
-  { k: 'libOffresAccueilSous', lbl: "Sous-titre de l'encart Offres", g: 'Libellés' },
-  { k: 'offresExclues', lbl: 'Enseignes sans offres', g: 'Libellés', type: 'liste', aide: 'Enseignes d’une typologie « offres » qui n’ont pas d’onglet' },
-  { k: 'libFormateur', lbl: 'Libellé de l’espace formateur', g: 'Libellés' },
-  { k: 'sujetPromos', lbl: 'Objet des mails de promotions', g: 'Libellés' },
-  { k: 'categoriesFormation', lbl: 'Catégories de formation imposées', g: 'Listes', type: 'liste', aide: 'Vide = libres' },
-  { k: 'plvCategories', lbl: 'Catégories de PLV', g: 'Listes', type: 'liste', aide: 'Ex. SPP, Print, Consos' },
-  { k: 'plvStockSource', lbl: 'Nom de la source de stock PLV', g: 'Listes', aide: 'Ex. le nom de votre logisticien' },
-  { k: 'plvBonPrefixe', lbl: 'Début du nom des bons de commande PLV', g: 'Listes' }
+  { k: 'modulesInactifs', lbl: 'Modules désactivés', g: 'Marque', type: 'modules', aide: 'Codes séparés par des virgules : quiz, rapports, formations, promos, offres, plv, magasins, anomalies, outils, tableurs' },
+  { k: 'libOffres', lbl: 'Nom du module', g: 'Offres', aide: 'Tuile, titre de l’écran et messages. Ex. Offres ITO' },
+  { k: 'libOffresAccueil', lbl: "Titre de l'encart de l'accueil", g: 'Offres' },
+  { k: 'libOffresAccueilSous', lbl: "Sous-titre de l'encart de l'accueil", g: 'Offres' },
+  { k: 'sujetPromos', lbl: 'Objet des mails de promotions', g: 'Promos', aide: 'Suivi du nom de l’enseigne' },
+  { k: 'plvCategories', lbl: 'Catégories de PLV', g: 'PLV', type: 'liste', aide: 'Séparées par des virgules. Ex. SPP, Print, Consos' },
+  { k: 'plvStockSource', lbl: 'Nom de la source de stock', g: 'PLV', aide: 'Ex. le nom de votre logisticien' },
+  { k: 'plvBonPrefixe', lbl: 'Début du nom des bons de commande', g: 'PLV' },
+  { k: 'libFormateur', lbl: 'Libellé de l’espace formateur', g: 'Formateur' }
 ];
+// Où se règle chaque groupe (hors « Marque », réglée dans Paramétrage)
+var PARAM_ECRANS = { Offres: 'Éditer les offres', Promos: 'Calendrier Promos', PLV: 'Gestion PLV', Formateur: 'Gérer les rôles' };
 
 function P(k) {
   var v = db && db.parametres && db.parametres[k];
@@ -2206,8 +2208,8 @@ function appliquerCategoriesFormation() {
   var f = PL('categoriesFormation');
   if (!Array.isArray(db.formationCategories)) db.formationCategories = [];
   var cur = db.formationCategories;
-  if (f.length) { if (!cur.length || f.some(function(c) { return cur.indexOf(c) === -1; })) db.formationCategories = f; }
-  else if (!cur.length) db.formationCategories = ['Divers'];
+  // Valeur du client = point de départ uniquement : la liste se gère ensuite dans l'écran Formations (⚙️)
+  if (!cur.length) db.formationCategories = f.length ? f : ['Divers'];
 }
 
 function plvCategoriesParam() { var l = PL('plvCategories'); return l.length ? l : ['Général']; }
@@ -2241,6 +2243,7 @@ function appliquerMarque() {
   document.querySelectorAll('meta[name="apple-mobile-web-app-title"]').forEach(function(t) { t.setAttribute('content', beta ? m.nomCourt + ' BETA' : m.nom); });
   document.querySelectorAll('[data-marque="nom"]').forEach(function(el) { el.textContent = m.nom; });
   document.querySelectorAll('[data-marque="nom-alt"]').forEach(function(el) { el.setAttribute('alt', m.nom); });
+  try { var tc = document.querySelector('meta[name="theme-color"]'); if (tc && m.couleur) tc.setAttribute('content', m.couleur); } catch (e) {}
   appliquerLibelles();
 }
 function appliquerLibelles() {
@@ -3739,29 +3742,24 @@ function renderParametrage() {
     '<div class="stat-card full mb-12" style="display:flex;align-items:center;gap:14px;cursor:pointer" onclick="ouvrirEditionMarque()">' +
       '<img src="' + escHtml(m.logo || 'icon-192.png') + '" alt="" style="width:64px;height:64px;object-fit:contain;background:#fff;border-radius:10px;flex-shrink:0">' +
       '<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700">' + escHtml(m.nom) + '</div>' +
-      '<div style="font-size:12px;opacity:0.7;margin-top:2px">Nom, logo, couleur, libellés</div></div>' +
+      '<div style="font-size:12px;opacity:0.7;margin-top:2px">Nom, logo, couleur, modules' + (modulesInactifs().length ? ' (' + modulesInactifs().length + ' désactivé' + (modulesInactifs().length > 1 ? 's' : '') + ')' : '') + '</div></div>' +
       '<span style="width:22px;height:22px;border-radius:50%;background:' + escHtml(m.couleur) + ';border:2px solid #fff;flex-shrink:0"></span></div>';
-
-  h += '<div class="section-label">🧩 Listes configurables</div>';
-  ['typologies', 'outils', 'messages', 'tableurs'].forEach(function(nom) {
-    var d = MODS[nom], n = refListe(nom).length;
-    h += '<div class="quiz-card" onclick="ouvrirListeConfig(\'' + nom + '\')"><div class="quiz-card-icon">' + d.icone + '</div>' +
-      '<div class="quiz-card-body"><div class="quiz-card-title">' + escHtml(d.titre) + '</div><div class="quiz-card-meta">' + n + ' élément(s)</div></div><div class="quiz-card-arrow">→</div></div>';
-  });
 
   h += '<div class="section-label" style="margin-top:18px">📦 Pack complet (tous les onglets)</div>' +
     '<div style="font-size:12px;color:var(--dark-gray);line-height:1.5;margin-bottom:10px">Pour installer un nouveau client : téléchargez le modèle vierge, faites-le remplir, puis importez-le. Chaque onglet est facultatif.</div>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">' +
-      '<button class="btn btn-secondary btn-sm" style="flex:1;width:auto" onclick="telechargerExcel(MODS_ORDRE, false)">⬇️ Modèle vierge</button>' +
-      '<button class="btn btn-secondary btn-sm" style="flex:1;width:auto" onclick="telechargerExcel(MODS_ORDRE, true)">⬇️ Exporter tout</button>' +
+      '<button class="btn btn-secondary btn-sm" style="flex:1;width:auto" onclick="telechargerExcel(modsActifs(), false)">⬇️ Modèle vierge</button>' +
+      '<button class="btn btn-secondary btn-sm" style="flex:1;width:auto" onclick="telechargerExcel(modsActifs(), true)">⬇️ Exporter tout</button>' +
     '</div>' +
     '<button class="btn btn-primary btn-sm mb-12" onclick="choisirFichierImport(\'\')">⬆️ Importer un fichier</button>';
 
-  h += '<div class="section-label">📋 Par référentiel</div>';
-  MODS_ORDRE.forEach(function(nom) {
-    var d = MODS[nom];
-    h += '<div class="quiz-card" style="cursor:default;flex-wrap:wrap"><div class="quiz-card-icon">' + d.icone + '</div>' +
-      '<div class="quiz-card-body"><div class="quiz-card-title">' + escHtml(d.titre) + '</div><div class="quiz-card-meta">Onglet « ' + escHtml(d.onglet) + ' »</div></div>' +
+  h += '<div class="section-label">📋 Référentiels</div>' +
+    '<div style="font-size:12px;color:var(--dark-gray);line-height:1.5;margin-bottom:10px">Touchez un référentiel pour le modifier, ou passez par Excel.</div>';
+  MODS_ORDRE.filter(function(nom) { return !refDesactive(nom); }).forEach(function(nom) {
+    var d = MODS[nom], ouvrir = REF_ECRANS[nom] || '';
+    h += '<div class="quiz-card" style="flex-wrap:wrap;' + (ouvrir ? '' : 'cursor:default') + '"><div class="quiz-card-icon"' + (ouvrir ? ' onclick="' + ouvrir + '"' : '') + '>' + d.icone + '</div>' +
+      '<div class="quiz-card-body"' + (ouvrir ? ' onclick="' + ouvrir + '"' : '') + '><div class="quiz-card-title">' + escHtml(d.titre) + '</div><div class="quiz-card-meta">' + (MODS[nom].editable ? refListe(nom).length + ' élément(s) · ' : '') + 'Onglet « ' + escHtml(d.onglet) + ' »</div></div>' +
+      (ouvrir ? '<div class="quiz-card-arrow" onclick="' + ouvrir + '">→</div>' : '') +
       '<div style="display:flex;gap:6px;width:100%;margin-top:8px">' +
         '<button class="btn btn-secondary btn-sm" style="flex:1;width:auto;font-size:11px" onclick="telechargerExcel([\'' + nom + '\'], false)">Modèle</button>' +
         '<button class="btn btn-secondary btn-sm" style="flex:1;width:auto;font-size:11px" onclick="telechargerExcel([\'' + nom + '\'], true)">Exporter</button>' +
@@ -3771,13 +3769,21 @@ function renderParametrage() {
   c.innerHTML = h;
 }
 
-// ── Marque : nom, couleur, logo, libellés ──
+function modsActifs() { return MODS_ORDRE.filter(function(nom) { return !refDesactive(nom); }); }
+// Où modifier chaque référentiel dans l'appli
+var REF_ECRANS = {
+  parametres: 'ouvrirEditionMarque()', typologies: "ouvrirListeConfig('typologies')", outils: "ouvrirListeConfig('outils')",
+  tableurs: "ouvrirListeConfig('tableurs')", messages: "ouvrirListeConfig('messages')",
+  secteurs: "goTo('screen-manage-sectors')", enseignes: "goTo('screen-manage-enseignes')", categories: "goTo('screen-manage-categories')",
+  pdv: "goTo('screen-manage-pdv')", comptes: "goTo('screen-manage-accounts')", plv: "goTo('screen-plv-admin')",
+  promos: "goTo('screen-promos')", quiz: "goTo('screen-manager')"
+};
+
+// ── Marque : nom, couleur, logo ──
 function ouvrirEditionMarque() {
-  var groupes = {};
-  PARAM_DEFS.forEach(function(d) { (groupes[d.g] = groupes[d.g] || []).push(d); });
+  var groupes = { Marque: PARAM_DEFS.filter(function(d) { return d.g === 'Marque'; }) };
   var h = '<div style="font-size:15px;font-weight:700;margin-bottom:12px">Personnalisation</div>';
   Object.keys(groupes).forEach(function(g) {
-    h += '<div class="section-label">' + escHtml(g) + '</div>';
     groupes[g].forEach(function(d) {
       var v = P(d.k);
       h += '<div class="form-group"><label class="form-label">' + escHtml(d.lbl) + '</label>';
@@ -3786,6 +3792,15 @@ function ouvrirEditionMarque() {
           '<div style="flex:1"><button class="btn btn-secondary btn-sm" style="width:auto" onclick="document.getElementById(\'pm-logo-input\').click()">📷 Choisir une image</button>' +
           '<button class="btn btn-sm" style="width:auto;background:transparent;color:var(--dark-gray)" onclick="_pmLogo=\'\';document.getElementById(\'pm-logo-apercu\').src=\'icon-192.png\'">Logo par défaut</button></div></div>' +
           '<input type="file" id="pm-logo-input" accept="image/*" style="display:none" onchange="choisirLogoMarque(this)">';
+      } else if (d.type === 'modules') {
+        var off = enListe(v);
+        h += '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px">Décochez les modules que ce client n’utilise pas : ils disparaissent pour tout le monde.</div>' +
+          MODULES.map(function(m) {
+            return '<label style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--beige);font-size:14px">' +
+              '<input type="checkbox" class="pm-module" value="' + m.k + '"' + (off.indexOf(m.k) === -1 ? ' checked' : '') + '> ' + m.ic + ' ' + escHtml(m.lbl) + '</label>';
+          }).join('');
+        h += '</div>';
+        return;
       } else if (d.type === 'couleur') {
         h += '<div style="display:flex;gap:8px;align-items:center"><input type="color" id="pm-' + d.k + '-c" value="' + escHtml(hexVersRgb(v) ? v : '#CC0000') + '" oninput="document.getElementById(\'pm-' + d.k + '\').value=this.value" style="width:46px;height:40px;border:none;background:none">' +
           '<input class="form-input" id="pm-' + d.k + '" value="' + escHtml(v) + '" style="flex:1"></div>';
@@ -3796,6 +3811,8 @@ function ouvrirEditionMarque() {
       h += '</div>';
     });
   });
+  h += '<div style="font-size:11px;color:var(--dark-gray);line-height:1.5;margin:4px 0 12px">Les autres libellés se règlent dans leur écran : ' +
+    Object.keys(PARAM_ECRANS).map(function(g) { return escHtml(PARAM_ECRANS[g]) + ' (⚙️)'; }).join(', ') + '.</div>';
   h += '<button class="btn btn-primary mb-8" onclick="enregistrerMarque()">💾 Enregistrer</button><button class="btn btn-secondary" onclick="fermerModalParam()">Annuler</button>';
   _pmLogo = P('logo');
   ouvrirModalParam(h);
@@ -3840,7 +3857,12 @@ function enregistrerMarque() {
   if (coul && coul.value.trim() && !hexVersRgb(coul.value.trim())) { showToast('❌ Couleur invalide (format #RRGGBB)'); return; }
   var p = Object.assign({}, db.parametres || {});
   PARAM_DEFS.forEach(function(d) {
-    if (d.type === 'image') return;
+    if (d.type === 'image' || d.g !== 'Marque') return;
+    if (d.type === 'modules') {
+      var off = [].filter.call(document.querySelectorAll('.pm-module'), function(c) { return !c.checked; }).map(function(c) { return c.value; });
+      if (document.querySelectorAll('.pm-module').length) { if (off.length) p[d.k] = off.join(', '); else delete p[d.k]; }
+      return;
+    }
     var el = document.getElementById('pm-' + d.k); if (!el) return;
     var v = el.value.trim();
     // On n'enregistre que ce qui diffère de la valeur par défaut du client
@@ -3852,7 +3874,45 @@ function enregistrerMarque() {
   db.parametres = p;
   saveDB(); appliquerConfigClient();
   fermerModalParam(); renderParametrage();
+  try { renderHomeRoleCards(); } catch (e) {}
   envoyerParametres().then(function(ok) { if (ok) showToast('✅ Personnalisation enregistrée'); });
+}
+
+// ── Réglages d'un écran : les paramètres du groupe g, réservés au manager ──
+function boutonReglages(g) {
+  if (!hasRole('manager')) return '';
+  return '<button class="btn btn-secondary btn-sm" onclick="ouvrirReglages(\'' + g + '\')" style="width:auto">⚙️ Réglages</button>';
+}
+function ouvrirReglages(g) {
+  if (!hasRole('manager')) return;
+  var defs = PARAM_DEFS.filter(function(d) { return d.g === g; });
+  var h = '<div style="font-size:15px;font-weight:700;margin-bottom:12px">Réglages — ' + escHtml(g) + '</div>';
+  defs.forEach(function(d) {
+    h += '<div class="form-group"><label class="form-label">' + escHtml(d.lbl) + '</label>' +
+      '<input class="form-input" id="pr-' + d.k + '" value="' + escHtml(P(d.k)) + '">' +
+      (d.aide ? '<div style="font-size:11px;color:var(--dark-gray);margin-top:4px">' + escHtml(d.aide) + '</div>' : '') + '</div>';
+  });
+  h += '<button class="btn btn-primary mb-8" onclick="enregistrerReglages(\'' + g + '\')">💾 Enregistrer</button><button class="btn btn-secondary" onclick="fermerModalParam()">Annuler</button>';
+  ouvrirModalParam(h);
+}
+function enregistrerReglages(g) {
+  var p = Object.assign({}, db.parametres || {});
+  PARAM_DEFS.filter(function(d) { return d.g === g; }).forEach(function(d) {
+    var el = document.getElementById('pr-' + d.k); if (!el) return;
+    var v = el.value.trim();
+    var defaut = (APP.parametres && APP.parametres[d.k]) || PARAM_DEFAUTS[d.k] || '';
+    if (v && v !== defaut) p[d.k] = v; else delete p[d.k];
+  });
+  db.parametres = p;
+  saveDB(); appliquerConfigClient();
+  fermerModalParam();
+  try { onScreenEnter(document.querySelector('.screen.active').id); } catch (e) {}
+  envoyerParametres().then(function(ok) { if (ok) showToast('✅ Réglages enregistrés'); });
+}
+// Emplacements statiques <div data-reglages="Groupe"> remplis à l'ouverture de l'écran
+function remplirReglages(screenId) {
+  var ecran = document.getElementById(screenId); if (!ecran) return;
+  [].forEach.call(ecran.querySelectorAll('[data-reglages]'), function(el) { el.innerHTML = boutonReglages(el.getAttribute('data-reglages')); el.style.display = hasRole('manager') ? '' : 'none'; });
 }
 
 // ── Éditeur générique de liste (typologies, outils, messages, tableurs) ──
@@ -4117,6 +4177,7 @@ function onScreenEnter(id) {
   if (id === 'screen-formateur') renderFormateurSpace();
   if (id === 'screen-manage-formateurs') renderManageFormateurs();
   if (id === 'screen-manage-roles') renderManageRoles();
+  remplirReglages(id);
   if (id === 'screen-manage-sectors') { renderManageSectors(); updateAllSectorDropdowns(); }
   if (id === 'screen-manage-pdv') initManagePDV();
   if (id === 'screen-monthly') renderMonthly();
@@ -4859,7 +4920,7 @@ function enregistrerChoixEnseignesOffres() {
 function renderEditOffres() {
   migrerOffresITO();
   var bar = document.getElementById('ito-config-bar');
-  if (bar) bar.innerHTML = canEditOffresITO() ? '<button class="btn btn-secondary btn-sm" onclick="ouvrirChoixEnseignesOffres()" style="width:auto;margin-bottom:12px">⚙️ Choisir les enseignes</button>' : '';
+  if (bar) bar.innerHTML = canEditOffresITO() ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"><button class="btn btn-secondary btn-sm" onclick="ouvrirChoixEnseignesOffres()" style="width:auto">🏢 Choisir les enseignes</button>' + boutonReglages('Offres') + '</div>' : '';
   var tabs = document.getElementById('ito-enseigne-tabs');
   if (tabs) {
     tabs.innerHTML = ITO_ENSEIGNES.map(function(e) {
@@ -6205,6 +6266,11 @@ function deleteCDS(id) {
 function renderHomeRanking() {
   var container = document.getElementById('home-ranking');
   if (!container) return;
+  // Classement des quiz : masqué si le module Quiz est désactivé
+  var titreRk = document.getElementById('home-ranking-titre'), rkOn = moduleActif('quiz');
+  if (titreRk) titreRk.style.display = rkOn ? '' : 'none';
+  container.style.display = rkOn ? '' : 'none';
+  if (!rkOn) return;
 
   var now = new Date();
   var thisMonth = now.getMonth();
@@ -6217,7 +6283,7 @@ function renderHomeRanking() {
   });
 
   if (!monthResults.length) {
-    container.innerHTML = '<div style="text-align:center;padding:20px;font-size:13px;color:var(--dark-gray)">Aucune formation ce mois-ci</div>';
+    container.innerHTML = '<div style="text-align:center;padding:20px;font-size:13px;color:var(--dark-gray)">Aucun quiz passé ce mois-ci</div>';
     return;
   }
 
@@ -8715,7 +8781,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.4.0-beta';
+var APP_VERSION = 'v5.6.0-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -10223,8 +10289,39 @@ function accesDuRole(r) {
   return Array.isArray(p.acces) ? p.acces : [];
 }
 // LA fonction qui décide si l'utilisateur connecté voit une fonction
+// ══════════════════════════════════════════════════════════
+// MODULES — chaque client active ceux qu'il utilise (paramètre modulesInactifs)
+// Un module désactivé disparaît pour tout le monde, manager compris :
+// tuiles, menu, accès des rôles et référentiels Excel.
+// ══════════════════════════════════════════════════════════
+var MODULES = [
+  { k: 'quiz',      lbl: 'Quiz',                     ic: '📝', acces: ['quiz', 'dashcds', 'quizdetail', 'questionnaires', 'creerquiz', 'formateur'], refs: ['quiz'] },
+  { k: 'rapports',  lbl: 'Rapports de visite',       ic: '📄', acces: ['rapports', 'templates', 'enseignes'] },
+  { k: 'formations',lbl: 'Formations',               ic: '🎓', acces: ['formation'] },
+  { k: 'promos',    lbl: 'Calendrier promos',        ic: '🎁', acces: ['promo'], refs: ['promos'] },
+  { k: 'offres',    lbl: 'Offres / communications',  ic: '🏷️', acces: ['ito', 'itoedit'] },
+  { k: 'plv',       lbl: 'Commande PLV',             ic: '🛒', acces: ['plv', 'plvadmin'], refs: ['plv'] },
+  { k: 'magasins',  lbl: 'Mes magasins',             ic: '🏪', acces: ['magasins'] },
+  { k: 'anomalies', lbl: 'Report anomalie',          ic: '🚩', acces: ['anomalie'] },
+  { k: 'outils',    lbl: 'Mes outils',               ic: '🔗', acces: ['outils'], refs: ['outils'] },
+  { k: 'tableurs',  lbl: 'Tableurs à compléter',     ic: '📑', acces: ['tableurs'], refs: ['tableurs'] }
+];
+function modulesInactifs() { return PL('modulesInactifs'); }
+function moduleActif(m) { return modulesInactifs().indexOf(m) === -1; }
+// Accès (clé de ACCES) appartenant à un module désactivé ?
+function accesDesactive(k) {
+  var off = modulesInactifs();
+  if (!off.length) return false;
+  return MODULES.some(function(m) { return off.indexOf(m.k) > -1 && m.acces.indexOf(k) > -1; });
+}
+function refDesactive(nom) {
+  var off = modulesInactifs();
+  return MODULES.some(function(m) { return off.indexOf(m.k) > -1 && (m.refs || []).indexOf(nom) > -1; });
+}
+
 function aAcces(k) {
   if (!currentAccount) return false;
+  if (accesDesactive(k)) return false;
   if (hasRole('manager')) return true;
   if (ACCES_TOUS.indexOf(k) !== -1) return true;
   return (currentAccount.roles || []).some(function(r) { return accesDuRole(r).indexOf(k) !== -1; });
@@ -10241,7 +10338,7 @@ var TUILES = [
   { k:'dashmgr',   ic:'&#128202;', lbl:'Dashboard',             go:"goTo('screen-mgr-dashboard')",     c:['#3E7CB1','#255A86'] },
   { k:'rapports',  ic:'&#128200;', lbl:'Mes rapports',          go:"goTo('screen-rapports')",          c:['#3E7CB1','#255A86'] },
   { k:'magasins',  ic:'&#127978;', lbl:'Mes magasins',          go:"goTo('screen-mes-magasins')",      c:['#2F9A7A','#1C6F57'] },
-  { k:'ito',       ic:'&#127991;&#65039;', lbl:'Offres',        lib:'libOffresTuile', go:"goTo('screen-offres-ito')",        c:['#E7A33C','#C27A12'] },
+  { k:'ito',       ic:'&#127991;&#65039;', lbl:'Offres',        lib:'libOffres', go:"goTo('screen-offres-ito')",        c:['#E7A33C','#C27A12'] },
   { k:'plv',       ic:'&#128722;', lbl:'Commande PLV',          go:"goTo('screen-plv')",               c:['#8A6D3B','#5E4A26'] },
   { k:'templates', ic:'&#128203;', lbl:'Templates rapports',    go:"goTo('screen-templates')",         c:['#7A5BA8','#563C80'] },
   { k:'formateur', ic:'&#127891;', lbl:'Espace Formateur',      go:'goToFormateurDirect()',            c:['#F08A6C','#D2513A'] },
@@ -10428,7 +10525,7 @@ function ouvrirRoleForm(id) {
     (base ? '<div style="font-size:11px;color:var(--warning);margin:-8px 0 8px;line-height:1.4">Rôle de base : modifier ses accès change l\'affichage pour tous les comptes qui l\'ont. Les contrôles du serveur, eux, ne changent pas.</div>' : '');
   ['Terrain', 'Pilotage', 'Gestion'].forEach(function(g) {
     html += '<div class="section-label" style="margin-top:12px">' + g + '</div>';
-    ACCES.filter(function(a) { return a.g === g; }).forEach(function(a) {
+    ACCES.filter(function(a) { return a.g === g && !accesDesactive(a.k); }).forEach(function(a) {
       var tous = ACCES_TOUS.indexOf(a.k) !== -1;
       var on = tous || (r.acces || []).indexOf(a.k) !== -1;
       html += '<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 0;cursor:pointer' + (tous ? ';opacity:0.55' : '') + '">' +
@@ -12401,6 +12498,7 @@ function plvAdminRow(p) {
 function renderPlvAdmin() {
   var c = document.getElementById('plv-admin-content'); if (!c) return;
   var d = plvData(), h = '';
+  if (hasRole('manager')) h += '<div style="margin-bottom:6px">' + boutonReglages('PLV') + '</div>';
   h += '<div class="section-label">📊 Stock ' + escHtml(P('plvStockSource')) + '</div>' +
     '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:8px">Dernière mise à jour : <b>' + escHtml(d.stockDate || 'jamais') + '</b></div>' +
     '<button class="btn btn-secondary" onclick="document.getElementById(\'plv-lk-input\').click()">📥 Importer un export ' + escHtml(P('plvStockSource')) + ' (.xlsx)</button>';
