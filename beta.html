@@ -2323,12 +2323,13 @@ function renderTableurs() {
   var c = document.getElementById('tableurs-list');
   if (!c) return;
   var l = tableursVisibles();
+  var ajout = hasRole('manager') ? '<button class="btn btn-primary mb-12" onclick="nouveauTableur()">+ Nouveau tableur</button>' : '';
   if (!l.length) {
-    c.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📑</div><div class="empty-state-title">Aucun tableur à compléter</div>' +
-      (hasRole('manager') ? '<div class="empty-state-sub">Ajoutez-en dans ☰ › Configuration › Paramétrage & données › Tableurs.</div>' : '') + '</div>';
+    c.innerHTML = ajout + '<div class="empty-state"><div class="empty-state-icon">📑</div><div class="empty-state-title">Aucun tableur à compléter</div>' +
+      (hasRole('manager') ? '<div class="empty-state-sub">Créez un tableur (titre, consigne, qui le voit), puis importez son fichier Excel depuis sa carte.</div>' : '') + '</div>';
     return;
   }
-  c.innerHTML = l.map(function(t, i) {
+  c.innerHTML = ajout + l.map(function(t, i) {
     var idJs = escHtml(t.id).replace(/'/g, "\\'"), st = tableurStructure(t.id);
     var action = st ? "ouvrirTableurSaisie('" + idJs + "')" : t.url ? "ouvrirTableur('" + idJs + "')" : "ouvrirImportTableur('" + idJs + "')";
     return '<div class="quiz-card fade-up" style="animation-delay:' + (i * 0.04).toFixed(2) + 's;align-items:flex-start" onclick="' + action + '">' +
@@ -2987,6 +2988,13 @@ function importerTableur() {
     _tabImp = null;
     ouvrirTableurSaisie(I.id);
   }).catch(function() { showToast('⚠️ Échec réseau'); });
+}
+
+// Création d'un tableur depuis l'écran Tableurs (même fiche que dans Paramétrage)
+function nouveauTableur() {
+  if (!hasRole('manager')) return;
+  ouvrirListeConfig('tableurs');
+  setTimeout(function() { editerElementConfig(-1); }, 50);
 }
 
 // Ouvre le fichier hors de l'appli (indispensable sur iPhone pour la connexion Microsoft)
@@ -6874,7 +6882,7 @@ function openMgrMenu() {
   if (aAcces('plv'))        items.push({icon:'🛒', label:'Commande PLV', screen:'screen-plv'});
   if (aAcces('anomalie'))   items.push({icon:'🚩', label:'Report anomalie', screen:'screen-anomalie'});
   if (aAcces('outils'))     items.push({icon:'🔗', label:'Mes outils', screen:'screen-outils'});
-  if (aAcces('tableurs') && tableursVisibles().length) items.push({icon:'📑', label:'Tableurs', screen:'screen-tableurs'});
+  if (aAcces('tableurs') && (tableursVisibles().length || hasRole('manager'))) items.push({icon:'📑', label:'Tableurs', screen:'screen-tableurs'});
 
   // ── Configuration ──
   if (aAcces('questionnaires')) items.push({icon:'📝', label:'Questionnaires', screen:'screen-manager', cfg:true});
@@ -8781,7 +8789,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.6.0-beta';
+var APP_VERSION = 'v5.6.1-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -10353,7 +10361,7 @@ function libelleTuile(t) { return t.lib ? escHtml(P(t.lib)) : t.lbl; }
 function tuileAutorisee(t) {
   if (t.k === 'ito' && !ITO_ENSEIGNES.length) return false;   // aucune typologie « offres »
   if (t.k === 'outils' && !liensVisibles().length) return false;
-  if (t.k === 'tableurs' && !tableursVisibles().length) return false;
+  if (t.k === 'tableurs' && !tableursVisibles().length && !hasRole('manager')) return false;
   return aAcces(t.k);
 }
 
