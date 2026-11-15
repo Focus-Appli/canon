@@ -2454,8 +2454,18 @@ function tabTexteSur(rgb) {
 function tabFond(rgb) { var h = String(rgb || '').replace('#', ''); return /^[0-9a-f]{6}$/i.test(h) && h.toUpperCase() !== 'FFFFFF' ? '#' + h : ''; }
 function tabEstGere() { return hasRole('manager'); }
 
+function tabLargeurMin(nom, lignes) {
+  var mot = Math.max.apply(null, String(nom).split(/[\s·\-\/]+/).map(function(m) { return m.length; }).concat([3]));
+  var lon = [];
+  lignes.slice(0, 300).forEach(function(l) { var v = l.v ? l.v[nom] : l[nom]; if (!tabVide(v)) lon.push(String(v).length); });
+  lon.sort(function(a, b) { return a - b; });
+  var typique = lon.length ? lon[Math.floor(lon.length * 0.9)] : 4;   // 90e centile : ignore les rares textes très longs
+  return Math.round(Math.max(mot * 8.5 + 40, Math.min(typique, 34) * 7.2 + 18, 70));
+}
 function tabPreparer(tc) {
   var cols = (tc.structure && tc.structure.colonnes) || [];
+  tc._larg = {};
+  cols.forEach(function(c) { tc._larg[c.nom] = tabLargeurMin(c.nom, tc.lignes); });
   tc.lignes.forEach(function(l) {
     l._txt = tabNorm(l.onglet + ' ' + cols.map(function(c) { return l.v[c.nom]; }).join(' ') + ' ' + (l.commentaire || ''));
   });
@@ -2556,7 +2566,7 @@ function renderTabGrille() {
   var toutes = st.colonnes || [];
   var liste = tabLignesFiltrees(tc);
   tabMajProgres();
-  var px = function(c) { var w = Number(c.largeur) || 120; return Math.max(70, Math.min(260, Math.round(w * 0.62))); };
+  var px = function(c) { var w = Number(c.largeur) || 0; return Math.min(300, Math.max(Math.round(w * 0.62), (tc._larg && tc._larg[c.nom]) || 90)); };
   var css = 'border:1px solid #D4D4D4;padding:0;font-size:12px;vertical-align:middle;';
   var h = '<div style="overflow:auto;max-height:calc(100vh - 240px);border:1px solid #BFBFBF;border-radius:6px;background:#fff;-webkit-overflow-scrolling:touch">' +
     '<table style="border-collapse:separate;border-spacing:0;table-layout:fixed;width:' + (30 + cols.reduce(function(t, c) { return t + px(c); }, 0) + (st.commentaire ? 170 : 0) + (edition ? 34 : 0)) + 'px"><colgroup><col style="width:30px">' +
@@ -2565,10 +2575,10 @@ function renderTabGrille() {
     '<th style="' + css + 'position:sticky;top:0;left:0;z-index:4;background:#F2F2F2"></th>' +
     cols.map(function(c, k) {
       var fond = tabFond(c.fondEntete) || '#F2F2F2';
-      return '<th style="' + css + 'position:sticky;top:0;z-index:' + (k === 0 ? 4 : 3) + ';' + (k === 0 ? 'left:30px;' : '') + 'background:' + fond + ';color:' + tabTexteSur(fond) + ';padding:6px;font-weight:700;text-align:left;white-space:normal;line-height:1.25">' +
-        '<div style="display:flex;gap:4px;align-items:flex-start"><span style="flex:1">' + tEsc(c.nom) + (c.saisie ? ' ✏️' : '') + '</span>' + tabBoutonFiltre(c.nom, fond) + '</div></th>';
+      return '<th style="' + css + 'position:sticky;top:0;z-index:' + (k === 0 ? 4 : 3) + ';' + (k === 0 ? 'left:30px;' : '') + 'background:' + fond + ';color:' + tabTexteSur(fond) + ';padding:6px 28px 6px 6px;font-weight:700;text-align:left;white-space:normal;line-height:1.25">' +
+        '<span style="display:block;overflow-wrap:anywhere;hyphens:auto" lang="fr">' + tEsc(c.nom) + (c.saisie ? ' ✏️' : '') + '</span>' + tabBoutonFiltre(c.nom, fond) + '</th>';
     }).join('') +
-    (st.commentaire ? '<th style="' + css + 'position:sticky;top:0;z-index:3;background:#FFF3A0;padding:6px;text-align:left"><div style="display:flex;gap:4px"><span style="flex:1">' + tEsc(st.libelleCommentaire || 'Commentaire') + ' ✏️</span>' + tabBoutonFiltre('__com', 'FFF3A0') + '</div></th>' : '') +
+    (st.commentaire ? '<th style="' + css + 'position:sticky;top:0;z-index:3;background:#FFF3A0;padding:6px 28px 6px 6px;text-align:left"><span style="display:block;overflow-wrap:anywhere">' + tEsc(st.libelleCommentaire || 'Commentaire') + ' ✏️</span>' + tabBoutonFiltre('__com', 'FFF3A0') + '</th>' : '') +
     (edition ? '<th style="' + css + 'position:sticky;top:0;z-index:3;background:#F2F2F2"></th>' : '') +
     '</tr></thead><tbody>';
   h += liste.slice(0, _tabFiltre.page).map(function(o) {
@@ -2737,7 +2747,7 @@ function tabEffacerFiltres() { _tabFiltre.cols = {}; _tabFiltre.tri = null; _tab
 function tabBoutonFiltre(nom, fond) {
   var actif = !!_tabFiltre.cols[nom] || (_tabFiltre.tri && _tabFiltre.tri.col === nom);
   var sens = _tabFiltre.tri && _tabFiltre.tri.col === nom ? (_tabFiltre.tri.sens > 0 ? '↑' : '↓') : '';
-  return '<button data-col="' + tEsc(nom) + '" onclick="ouvrirFiltreColonne(this.dataset.col)" title="Filtrer / trier" style="flex-shrink:0;border:1px solid ' + (actif ? '#1D6F42' : 'rgba(0,0,0,.25)') + ';border-radius:4px;' +
+  return '<button data-col="' + tEsc(nom) + '" onclick="ouvrirFiltreColonne(this.dataset.col)" title="Filtrer / trier" style="position:absolute;right:4px;bottom:5px;width:20px;height:20px;border:1px solid ' + (actif ? '#1D6F42' : 'rgba(0,0,0,.25)') + ';border-radius:4px;' +
     'background:' + (actif ? '#1D6F42' : 'rgba(255,255,255,.85)') + ';color:' + (actif ? '#fff' : '#2E3139') + ';font-size:10px;line-height:1;padding:3px 4px;cursor:pointer">' + (actif ? (sens || '⧩') : '▾') + '</button>';
 }
 
@@ -2800,7 +2810,7 @@ function lireFichierTableur(input) {
     try {
       var I = _tabImp;
       var wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true, cellStyles: true });
-      I.wb = wb; I.fichier = f.name; I.feuilles = wb.SheetNames.slice(); I.aoa = {}; I.entete = {}; I.colonnes = []; I.secteurSource = '';
+      I.wb = wb; I.fichier = f.name; I.feuilles = wb.SheetNames.slice(); I.aoa = {}; I.entete = {}; I.colonnes = []; I.secteurSource = ''; I.deuxLignes = undefined;
       if (I.nouveau && !I.titre) I.titre = f.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim();
       // Feuilles retenues : celles qui partagent le même tableau (ex. une feuille par secteur),
       // sans la feuille de synthèse. Une seule feuille → on la garde.
@@ -2816,6 +2826,9 @@ function lireFichierTableur(input) {
       if (I.ancien && I.ancien.onglets) { var anc = I.feuilles.filter(function(nom) { return I.ancien.onglets.indexOf(nom) > -1; }); if (anc.length) I.onglets = anc; }
       I.entete[I.onglets[0]] = tabDevinerEntete(tabAoa(I.onglets[0]));
       tabRecalculerColonnes();
+      // Le fichier a déjà une colonne « Commentaire » : on s'en sert, sans en ajouter une seconde
+      var colCom = tabColCommentaire();
+      if (colCom) { if (!I.ancien) colCom.saisie = true; colCom.masquee = false; I.commentaire = false; }
       renderTabImport();
     } catch (err) { showToast('⚠️ Fichier illisible : ' + err.message); }
   };
@@ -2854,14 +2867,49 @@ function tabEnteteOnglet(nom) {
   return tabDevinerEntete(aoa);
 }
 
+// Cellules fusionnées de la feuille, en coordonnées du tableau lu (aoa)
+function tabFusions(nom) {
+  var ws = _tabImp.wb.Sheets[nom]; if (!ws) return [];
+  var rg = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: { r: 0, c: 0 } };
+  return (ws['!merges'] || []).map(function(m) { return { r1: m.s.r - rg.s.r, c1: m.s.c - rg.s.c, r2: m.e.r - rg.s.r, c2: m.e.c - rg.s.c }; });
+}
+// En-tête sur deux lignes : un titre fusionné sur plusieurs colonnes, avec des sous-titres dessous
+function tabDouble(nom) {
+  if (_tabImp.deuxLignes !== undefined) return !!_tabImp.deuxLignes;
+  var aoa = tabAoa(nom), e = tabEnteteOnglet(nom), sous = aoa[e + 1] || [];
+  return tabFusions(nom).some(function(m) {
+    if (m.r1 !== e || m.c2 <= m.c1) return false;
+    var n = 0, txt = 0;
+    for (var c = m.c1; c <= m.c2; c++) { n++; if (sous[c] && !tabEstNombre(sous[c])) txt++; }
+    return txt >= Math.ceil(n / 2);
+  });
+}
+function tabDebutDonnees(nom) { return tabEnteteOnglet(nom) + (tabDouble(nom) ? 2 : 1); }
+
 function tabEntetes(nom) {
   var aoa = tabAoa(nom), e = tabEnteteOnglet(nom), row = (aoa[e] || []).slice(), vus = {}, out = [];
+  var debut = tabDebutDonnees(nom);
+  // Titre fusionné : il vaut pour toutes les colonnes qu'il couvre
+  var parent = {};
+  tabFusions(nom).forEach(function(m) {
+    if (m.r1 <= e && m.r2 >= e && m.c2 > m.c1) for (var c = m.c1; c <= m.c2; c++) parent[c] = aoa[m.r1] && aoa[m.r1][m.c1];
+  });
+  if (debut > e + 1) {
+    var sous = aoa[e + 1] || [];
+    var larg0 = Math.max(row.length, sous.length);
+    for (var c2 = 0; c2 < larg0; c2++) {
+      var haut = parent[c2] || row[c2] || '', bas = sous[c2] || '';
+      row[c2] = haut && bas ? haut + ' · ' + bas : (haut || bas);
+    }
+  } else {
+    Object.keys(parent).forEach(function(c3) { if (!row[c3]) row[c3] = parent[c3]; });
+  }
   // Colonne sans titre mais avec des données : « Colonne D »
   var larg = 0;
-  for (var r = e + 1; r < Math.min(aoa.length, e + 300); r++) larg = Math.max(larg, aoa[r].length);
+  for (var r = debut; r < Math.min(aoa.length, debut + 300); r++) larg = Math.max(larg, aoa[r].length);
   for (var j = 0; j < larg; j++) {
     if (row[j]) continue;
-    for (var r2 = e + 1; r2 < Math.min(aoa.length, e + 300); r2++) if (aoa[r2][j]) { row[j] = 'Colonne ' + XLSX.utils.encode_col(j); break; }
+    for (var r2 = debut; r2 < Math.min(aoa.length, debut + 300); r2++) if (aoa[r2][j]) { row[j] = 'Colonne ' + XLSX.utils.encode_col(j); break; }
   }
   row.forEach(function(v, j) {
     if (!v) return;
@@ -2874,9 +2922,9 @@ function tabEntetes(nom) {
 }
 
 function tabLignesOnglet(nom) {
-  var aoa = tabAoa(nom), e = tabEnteteOnglet(nom), hs = tabEntetes(nom), out = [];
+  var aoa = tabAoa(nom), hs = tabEntetes(nom), out = [];
   if (!hs.length) return out;
-  for (var i = e + 1; i < aoa.length; i++) {
+  for (var i = tabDebutDonnees(nom); i < aoa.length; i++) {
     if (!hs.some(function(hh) { return aoa[i][hh.j]; })) continue;
     var o = {};
     hs.forEach(function(hh) { o[hh.nom] = aoa[i][hh.j] || ''; });
@@ -2904,14 +2952,20 @@ function tabStylesOnglet(nom) {
   tabEntetes(nom).forEach(function(hh) {
     var adr = function(r) { return XLSX.utils.encode_cell({ r: r + rg.s.r, c: hh.j + rg.s.c }); };
     var fonds = {}, jaunes = 0, n = 0;
-    for (var r = e + 1; r < Math.min(aoa.length, e + 40); r++) {
+    var d0 = tabDebutDonnees(nom);
+    for (var r = d0; r < Math.min(aoa.length, d0 + 40); r++) {
       if (!aoa[r].some(function(v) { return v !== ''; })) continue;
       var f = tabRgb(ws[adr(r)]); n++;
       if (f) fonds[f] = (fonds[f] || 0) + 1;
       if (tabEstJaune(f)) jaunes++;
     }
     var principal = Object.keys(fonds).sort(function(a, b) { return fonds[b] - fonds[a]; })[0] || '';
-    out[hh.nom] = { fondEntete: tabRgb(ws[adr(e)]), fondCellule: principal && fonds[principal] >= n / 2 ? principal : '',
+    var fe = tabRgb(ws[adr(e)]);
+    if (d0 > e + 1) fe = tabRgb(ws[adr(e + 1)]) || fe;
+    if (!fe) tabFusions(nom).forEach(function(m) {
+      if (!fe && m.r1 <= e && m.r2 >= e && hh.j >= m.c1 && hh.j <= m.c2) fe = tabRgb(ws[XLSX.utils.encode_cell({ r: m.r1 + rg.s.r, c: m.c1 + rg.s.c })]);
+    });
+    out[hh.nom] = { fondEntete: fe, fondCellule: principal && fonds[principal] >= n / 2 ? principal : '',
       largeur: (cols[hh.j + rg.s.c] && cols[hh.j + rg.s.c].wpx) || 0, jaune: n ? jaunes / n : 0 };
   });
   return out;
@@ -2939,6 +2993,9 @@ function tabRecalculerColonnes() {
   }
 }
 
+function tabColCommentaire() {
+  return (_tabImp.colonnes || []).filter(function(c) { return /comm?entaire|remarque|observation/i.test(c.nom); })[0] || null;
+}
 // Touche sur un en-tête : normale → à remplir → masquée → normale
 function tabCycleColonne(k) {
   var c = _tabImp.colonnes[k];
@@ -2978,11 +3035,14 @@ function renderTabImport() {
       var txt = r.filter(function(v) { return v !== ''; }).join(' | ');
       return '<option value="' + i + '"' + (i === e ? ' selected' : '') + '>' + (i + 1) + '. ' + tEsc((txt || '(vide)').slice(0, 70)) + '</option>';
     }).join('') + '</select></div>' +
+    '<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px"><input type="checkbox" ' + (tabDouble(ref) ? 'checked' : '') +
+      ' onchange="_tabImp.deuxLignes=this.checked;tabRecalculerColonnes();renderTabImport()"> Titres sur deux lignes (titre fusionné + sous-titres)</label>' +
     '<div style="font-size:11px;color:var(--dark-gray);margin-bottom:6px;line-height:1.5">Touchez l\'en-tête d\'une colonne : <b style="background:#FFF3A0;padding:0 4px">à remplir</b> → <s>masquée</s> → normale. Les colonnes jaunes du fichier sont déjà cochées.</div>';
 
   // Grille d'aperçu (12 premières lignes)
   var lignes = tabLignesOnglet(ref).slice(0, 12), css = 'border:1px solid #D4D4D4;font-size:11px;padding:5px;';
-  var px = function(col) { return Math.max(70, Math.min(220, Math.round((Number(col.largeur) || 120) * 0.55))); };
+  var lignesL = tabLignesOnglet(ref);
+  var px = function(col) { return Math.min(260, Math.max(Math.round((Number(col.largeur) || 0) * 0.55), tabLargeurMin(col.nom, lignesL))); };
   h += '<div style="overflow:auto;max-height:360px;border:1px solid #BFBFBF;border-radius:6px;background:#fff"><table style="border-collapse:collapse;table-layout:fixed"><thead><tr>' +
     I.colonnes.map(function(col, k) {
       var fond = col.saisie ? '#FFE45C' : col.masquee ? '#E0E0E0' : (tabFond(col.fondEntete) || '#F2F2F2');
@@ -3004,6 +3064,7 @@ function renderTabImport() {
       I.colonnes.map(function(col) { var v = 'col:' + col.nom; return '<option value="' + tEsc(v) + '"' + (I.secteurSource === v ? ' selected' : '') + '>Le secteur est dans la colonne « ' + tEsc(col.nom) + ' »</option>'; }).join('') +
     '</select><div style="font-size:11px;color:var(--dark-gray);margin-top:4px">Le manager et l\'admin voient toujours tout.</div>' +
     '<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px"><input type="checkbox" ' + (I.commentaire ? 'checked' : '') + ' onchange="_tabImp.commentaire=this.checked;renderTabImport()" /> Ajouter une colonne de commentaire libre</label>' +
+    (tabColCommentaire() ? '<div style="font-size:11px;color:' + (I.commentaire ? 'var(--warning)' : 'var(--dark-gray)') + ';margin-top:4px">' + (I.commentaire ? '⚠️ Le fichier a déjà la colonne « ' + tEsc(tabColCommentaire().nom) + ' » : vous aurez deux colonnes de commentaire.' : 'Le fichier a déjà sa colonne « ' + tEsc(tabColCommentaire().nom) + ' » : elle est utilisée.') + '</div>' : '') +
     (I.commentaire ? '<input class="form-input" value="' + tEsc(I.libCom) + '" oninput="_tabImp.libCom=this.value" placeholder="Titre de la colonne" style="margin-top:6px" />' : '');
 
   var total = 0;
@@ -3024,7 +3085,7 @@ function tabBasculerOnglet(o, on) {
 }
 function tabChoisirEntete(i) {
   var I = _tabImp;
-  I.entete = {}; I.entete[I.onglets[0]] = i;
+  I.entete = {}; I.entete[I.onglets[0]] = i; I.deuxLignes = undefined;
   tabRecalculerColonnes();
   renderTabImport();
 }
@@ -9027,7 +9088,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.7.0-beta';
+var APP_VERSION = 'v5.7.2-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
