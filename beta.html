@@ -13219,6 +13219,8 @@ function escHtml(str) {
 
   // Accès (configurable par rôle comme les autres modules) + tuile d'accueil
   ACCES.splice(12, 0, { k: 'jeu', lbl: 'Jeu de la semaine', g: 'Terrain' });
+  // Statistiques du jeu : manager par défaut, attribuable à d'autres rôles dans « Rôles et accès »
+  ACCES.splice(ACCES.map(function(x) { return x.k; }).indexOf('quizdetail') + 1, 0, { k: 'jeustats', lbl: 'Statistiques du jeu', g: 'Pilotage' });
   ACCES_TOUS.push('jeu');
   TUILES.splice(TUILES.length - 1, 0, { k: 'jeu', ic: '&#127919;', lbl: 'Jeu de la semaine', go: "goTo('screen-jeu')", c: ['#D4483B', '#8E1B30'] });
 
@@ -13329,6 +13331,8 @@ function jeuAccueil(et, fin) {
   }
   if (et.gagnantPrec) h += '<div style="background:var(--beige);border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:14px">&#127942; Semaine dernière : <b>' + escHtml(et.gagnantPrec.secteur) + '</b> (' + et.gagnantPrec.points + ' pts)</div>';
   h += jeuTableau('Classement de la semaine', et.semaineCls) + jeuTableau('Classement du mois', et.moisCls);
+  if (aAcces('jeustats'))
+    h += '<button class="btn btn-secondary" style="margin-top:14px" onclick="jeuStats(\'semaine\')">&#128202; Statistiques des questions</button>';
   h += '<button class="btn btn-ghost" style="margin-top:8px" onclick="goTo(\'screen-home\')">Retour à l\'accueil</button>';
   z.innerHTML = h;
 }
@@ -13408,6 +13412,47 @@ function jeuFinir() {
   _jeu = null;
   jeuLocal('attente', p);
   jeuEnvoyer(p);
+}
+
+// Statistiques par question (manager / admin) : réussite, temps moyen, erreurs
+function jeuStats(periode) {
+  var z = document.getElementById('jeu-zone');
+  z.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dark-gray)">Chargement des statistiques…</div>';
+  apiJsonp({ action: 'jeuStats', periode: periode }, { timeout: 30000, retries: 1 }).then(function(r) {
+    if (!r || r.status !== 'ok' || !r.questions) throw new Error((r && r.message) || 'réponse vide');
+    var chip = function(p, lbl) {
+      return '<button class="filter-chip' + (p === periode ? ' active' : '') + '" style="margin-right:6px" onclick="jeuStats(\'' + p + '\')">' + lbl + '</button>';
+    };
+    var coul = function(p) { return p >= 70 ? '#2E9E5B' : p >= 40 ? '#E0A100' : '#D4483B'; };
+    var h = '<div style="margin-bottom:12px">' + chip('semaine', 'Cette semaine') + chip('mois', 'Ce mois') + chip('tout', 'Depuis le début') + '</div>';
+    if (!r.parties) {
+      h += jeuMsg('&#128202;', 'Pas encore de données', 'Aucune partie terminée sur cette période.');
+    } else {
+      h += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+        [['Parties', r.parties], ['Réussite', r.reussite + ' %'], ['Temps moyen', jeuTemps(r.tempsMoyen)]].map(function(k) {
+          return '<div style="flex:1;background:var(--white);border-radius:12px;padding:10px;text-align:center">' +
+            '<div style="font-size:18px;font-weight:800">' + k[1] + '</div><div style="font-size:11px;color:var(--dark-gray)">' + k[0] + '</div></div>';
+        }).join('') + '</div>' +
+        '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:8px">Des questions les plus ratées aux mieux réussies</div>';
+      h += r.questions.map(function(q) {
+        return '<div style="background:var(--white);border-radius:12px;padding:12px;margin-bottom:8px">' +
+          '<div style="display:flex;gap:8px;align-items:flex-start"><div style="flex:1;font-size:13px;font-weight:600">' + escHtml(q.q) + '</div>' +
+          '<div style="font-weight:800;color:' + coul(q.reussite) + '">' + q.reussite + ' %</div></div>' +
+          '<div style="height:5px;background:var(--beige);border-radius:3px;margin:8px 0;overflow:hidden"><div style="height:100%;width:' + q.reussite + '%;background:' + coul(q.reussite) + '"></div></div>' +
+          '<div style="font-size:12px;color:var(--dark-gray);line-height:1.6">' +
+            '&#9201; ' + jeuTemps(q.tempsMoyen) + ' en moyenne · ' + q.vus + ' réponse' + (q.vus > 1 ? 's' : '') +
+            (q.horsDelai ? ' · &#9200; ' + q.horsDelai + ' hors délai' : '') + (q.cat ? ' · ' + escHtml(q.cat) : '') +
+            '<br>Bonne réponse : <b>' + escHtml(q.bonne) + '</b>' +
+            (q.erreur ? '<br>Erreur la plus fréquente : <b>' + escHtml(q.erreur.texte) + '</b> (' + q.erreur.n + ')' : '') +
+          '</div></div>';
+      }).join('');
+    }
+    h += '<button class="btn btn-ghost" style="margin-top:8px" onclick="renderJeu()">Retour au jeu</button>';
+    z.innerHTML = h;
+  }).catch(function(e) {
+    z.innerHTML = jeuMsg('&#9888;&#65039;', 'Statistiques indisponibles', escHtml((e && e.message) || 'Réessaie dans un instant.')) +
+      '<button class="btn btn-ghost" onclick="renderJeu()">Retour au jeu</button>';
+  });
 }
 
 function jeuEnvoyer(p) {
