@@ -763,7 +763,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   .cc-acc-body { padding:0 2px 12px; }
   details.cc-acc.cc-card .cc-acc-body { padding:0 16px 16px; }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -4229,8 +4229,75 @@ function sectionsDe(ens) {
   return o.sections;
 }
 
-function loadDB() {
-  try { const s = localStorage.getItem(DB_KEY); if (s) db = JSON.parse(s); } catch(e) {}
+// ── Stockage étendu (IndexedDB) ─────────────────────────────────────────────
+// localStorage plafonne vers 5 Mo sur iPhone. Chaque sauvegarde est donc aussi
+// écrite dans IndexedDB (plusieurs centaines de Mo disponibles). Au démarrage,
+// la copie la plus récente des deux est retenue : si localStorage était plein,
+// rien n'est perdu (photos des rapports en attente comprises).
+var _idb = null, _idbPret = false, _idbTimer = null, _idbAttente = null;
+function idbOuvrir() {
+  return new Promise(function(ok, ko) {
+    if (_idb) return ok(_idb);
+    if (!window.indexedDB) return ko(new Error('idb'));
+    var rq;
+    try { rq = indexedDB.open(PFX + 'stockage', 1); } catch (e) { return ko(e); }
+    rq.onupgradeneeded = function() { rq.result.createObjectStore('kv'); };
+    rq.onsuccess = function() { _idb = rq.result; ok(_idb); };
+    rq.onerror = function() { ko(rq.error); };
+  });
+}
+function idbEcrire(json) {
+  _idbAttente = json;
+  if (!_idbPret) return;            // jamais avant d'avoir relu la copie existante
+  clearTimeout(_idbTimer);
+  _idbTimer = setTimeout(idbVider, 400);
+}
+function idbVider() {
+  clearTimeout(_idbTimer);
+  if (_idbAttente === null || !_idbPret) return;
+  var json = _idbAttente; _idbAttente = null;
+  idbOuvrir().then(function(d) {
+    d.transaction('kv', 'readwrite').objectStore('kv').put(json, DB_KEY);
+  }).catch(function() {});
+}
+function idbLire() {
+  return idbOuvrir().then(function(d) {
+    return new Promise(function(ok) {
+      var rq = d.transaction('kv', 'readonly').objectStore('kv').get(DB_KEY);
+      rq.onsuccess = function() { ok(rq.result || null); };
+      rq.onerror = function() { ok(null); };
+    });
+  });
+}
+function idbVerifierCopie(lsAt, lsLite) {
+  _idbPret = false;
+  idbLire().then(function(json) {
+    var at = 0;
+    if (json) { try { at = Number(JSON.parse(json)._savedAt) || 0; } catch (e) { json = null; } }
+    var plusRecente = json && (!lsAt || at > lsAt || (at === lsAt && lsLite));
+    _idbPret = true;
+    if (plusRecente) {
+      _idbAttente = null;           // écritures faites sur l'ancienne copie : ignorées
+      loadDB(json);
+      try { syncAccountsToCDSAndFormateurs(); } catch (e) {}
+      try { if (currentAccount) { renderHome(); refreshActiveScreen(); } } catch (e) {}
+    } else {
+      idbEcrire(_idbAttente !== null ? _idbAttente : JSON.stringify(db));
+    }
+  }).catch(function() { _idbPret = false; });
+}
+// Quitter l'app ou passer en arrière-plan : on écrit tout de suite
+document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'hidden') idbVider(); });
+window.addEventListener('pagehide', idbVider);
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+function loadDB(depuisJson) {
+  var lsAt = 0, lsLite = false;
+  try {
+    const s = depuisJson || localStorage.getItem(DB_KEY);
+    if (s) { db = JSON.parse(s); lsAt = Number(db._savedAt) || 0; lsLite = !!db._lite; delete db._lite; }
+  } catch(e) {}
+  if (!depuisJson) idbVerifierCopie(lsAt, lsLite);
   ensureDbStructure();
  migrerConfirmationsV5();
  appliquerConfigClient();
@@ -4274,9 +4341,27 @@ function dbSizeReport() {
 
 function saveDB() {
   if (_apercu) return; // mode « voir comme » : rien n'est enregistré
+  db._savedAt = Date.now();
+  var _json = JSON.stringify(db);
+  idbEcrire(_json);
   try {
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    localStorage.setItem(DB_KEY, _json);
   } catch (e) {
+    // Mémoire pleine : la copie complète est dans le stockage étendu.
+    // On garde ici une copie allégée (sans photos ni formations) pour le démarrage.
+    if (window.indexedDB) {
+      idbVider();
+      try {
+        var lite = JSON.parse(_json);
+        (lite.rapports || []).forEach(function(r) { (r.answers || []).forEach(function(a) { if (a.photos) a.photos = []; }); });
+        lite.formations = []; lite._lite = true;
+        localStorage.setItem(DB_KEY, JSON.stringify(lite));
+        return;
+      } catch (eLite) {
+        try { localStorage.removeItem(DB_KEY); } catch (eRm) {}
+        return;
+      }
+    }
     // Niveau 1 : purger les photos des rapports DÉJÀ générés (docUrl présent)
     try {
       (db.rapports || []).forEach(function(r) {
@@ -5681,10 +5766,13 @@ async function syncResult(result) {
   };
 
  try {
-    await apiPost(payload);
-    // no-cors = réponse opaque : on NE PEUT PAS se fier à l'absence d'erreur.
-    // On vérifie côté serveur que le résultat est bien arrivé avant de marquer synced.
-    const confirmed = await verifyResultSynced(result.id);
+    // Le serveur répond directement « enregistré » (ou « déjà reçu ») :
+    // plus besoin de retélécharger toute la base pour vérifier.
+    let confirmed = false;
+    try {
+      const res = await apiPostJSON(payload);
+      confirmed = !!(res && res.status === 'ok');
+    } catch (e) { confirmed = false; }
     if (confirmed) {
       const r = db.results.find(x => x.id === result.id);
       if (r) { r.synced = true; saveDB(); }
@@ -6154,7 +6242,7 @@ function refreshFormations(force) {
   _formationsSyncing = true;
   var before = (db.formations || []).length;
   if (force) showToast('🔄 Actualisation...');
-  importViaScript().then(function () {
+  importViaScript(force ? { full: true } : null).then(function () {
     _lastFormationsSync = Date.now();
     renderFormationCatTabs();
     renderFormationsList();
@@ -7343,7 +7431,14 @@ function hideSplash() {
   var splash = document.getElementById('splash-screen');
   if (!splash) return;
   // On laisse l'animation « FOCUS » aller au bout (3 s minimum)
-  var reste = 3000 - (Date.now() - (window._splashT0 || 0));
+  // Animation complète au premier lancement du jour, 1 s les fois suivantes
+  if (!window._splashMin) {
+    var jour = new Date().toISOString().slice(0, 10);
+    var vu = ''; try { vu = localStorage.getItem(PFX + 'splash_jour') || ''; } catch (e) {}
+    window._splashMin = (vu === jour) ? 1000 : 3000;
+    try { localStorage.setItem(PFX + 'splash_jour', jour); } catch (e) {}
+  }
+  var reste = window._splashMin - (Date.now() - (window._splashT0 || 0));
   if (reste > 0) { setTimeout(hideSplash, reste); return; }
   splash.style.opacity = '0';
   setTimeout(function() { splash.style.display = 'none'; document.documentElement.style.overflow = ''; }, 500);
@@ -9631,7 +9726,7 @@ async function syncCenterImport() {
   btn.textContent = '⏳ Importation…'; btn.disabled = true;
 
   try {
-    await importViaScript();
+    await importViaScript({ full: true });
   } catch(e) {
     showToast('❌ Import impossible — vérifiez le réseau');
     console.log('Import error:', e);
@@ -9883,9 +9978,22 @@ function importAccountsOnly() {
   });
 }
 
-function importViaScript() {
-  return apiJsonp({}, { timeout: 60000 }).then(function(data) {
+function importViaScript(opts) {
+  // Le serveur renvoie un numéro de version des données. Si rien n'a bougé
+  // depuis la dernière synchro, il répond « unchanged » en une fraction de
+  // seconde au lieu de renvoyer toute la base. Import complet forcé : à la
+  // connexion, sur « Importer les données », et au moins toutes les 30 min.
+  var p = {};
+  var full = opts && opts.full;
+  if (!full && db._syncRev && Date.now() - Number(db._syncFullAt || 0) < 30 * 60 * 1000) p.rev = db._syncRev;
+  return apiJsonp(p, { timeout: 60000 }).then(function(data) {
+    if (data && data.status === 'ok' && data.unchanged) return;
     processImportData(data);
+    if (data && data.status === 'ok') {
+      db._syncRev = data.rev || '';
+      db._syncFullAt = Date.now();
+      saveDB();
+    }
   });
 }
 
@@ -10086,7 +10194,7 @@ function loginSuccess(account, offline) {
   try { syncSession(true); logEvent('login', offline ? 'hors ligne' : 'ok'); } catch(e) {}
   if (!offline && navigator.onLine) {
     showToast('Synchronisation en cours\u2026');
-    importViaScript().then(function() {
+    importViaScript({ full: true }).then(function() {
       showToast('\u2705 Donn\u00e9es synchronis\u00e9es');
     }).catch(function() {});
   }
@@ -13097,6 +13205,225 @@ function escHtml(str) {
 }
 
 
+</script>
+<!-- ═══════ JEU DE LA SEMAINE ═══════ -->
+<script>
+(function() {
+  // Écran créé ici : rien d'autre à ajouter dans le HTML
+  var ecran = document.createElement('div');
+  ecran.className = 'screen';
+  ecran.id = 'screen-jeu';
+  ecran.innerHTML = '<div class="topbar"><button class="topbar-back" onclick="jeuQuitter()">←</button>' +
+    '<span class="topbar-title">Jeu de la semaine</span></div><div class="content" id="jeu-zone"></div>';
+  document.body.appendChild(ecran);
+
+  // Accès (configurable par rôle comme les autres modules) + tuile d'accueil
+  ACCES.splice(12, 0, { k: 'jeu', lbl: 'Jeu de la semaine', g: 'Terrain' });
+  ACCES_TOUS.push('jeu');
+  TUILES.splice(TUILES.length - 1, 0, { k: 'jeu', ic: '&#127919;', lbl: 'Jeu de la semaine', go: "goTo('screen-jeu')", c: ['#D4483B', '#8E1B30'] });
+
+  var _ose = onScreenEnter;
+  onScreenEnter = function(id) { _ose(id); if (id === 'screen-jeu') renderJeu(); };
+  var _rhrc = renderHomeRoleCards;
+  renderHomeRoleCards = function() { _rhrc(); try { jeuBandeau(); } catch (e) {} };
+})();
+
+var JEU_CLE = PFX + 'jeu_';
+var _jeu = null;   // partie en cours : { semaine, secondes, questions, i, reponses, t0, timer }
+
+function jeuLundi() {
+  var d = new Date(); d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+function jeuLocal(k, v) {
+  try {
+    if (v === undefined) return JSON.parse(localStorage.getItem(JEU_CLE + k + '_' + (currentAccount ? currentAccount.id : '')) || 'null');
+    if (v === null) localStorage.removeItem(JEU_CLE + k + '_' + (currentAccount ? currentAccount.id : ''));
+    else localStorage.setItem(JEU_CLE + k + '_' + (currentAccount ? currentAccount.id : ''), JSON.stringify(v));
+  } catch (e) { return null; }
+}
+function jeuTemps(ms) { return (Math.round((ms || 0) / 100) / 10).toString().replace('.', ',') + ' s'; }
+
+// Bandeau en tête de l'accueil (lit l'état gardé sur le téléphone : aucun appel réseau)
+function jeuBandeau() {
+  var c = document.getElementById('home-role-cards');
+  if (!c || !currentAccount || !aAcces('jeu')) return;
+  var et = jeuLocal('etat'), fait = et && et.semaine === jeuLundi() && et.moi && et.moi.joue;
+  var b = document.createElement('div');
+  b.className = 'fade-up';
+  b.style.cssText = 'grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;cursor:pointer;color:#fff;' +
+    'background:linear-gradient(135deg,' + (fait ? '#4A5060,#2E3139' : '#D4483B,#8E1B30') + ')';
+  b.onclick = function() { goTo('screen-jeu'); };
+  b.innerHTML = '<span style="font-size:28px">' + (fait ? '&#9989;' : '&#127919;') + '</span><div style="flex:1">' +
+    '<div style="font-weight:700;font-size:14px">Jeu de la semaine</div>' +
+    '<div style="font-size:12px;opacity:0.85">' + (fait ? 'Joué : ' + et.moi.bonnes + '/' + et.moi.total + ' — voir le classement' : 'À toi de jouer ! 15 s par question') + '</div></div>' +
+    '<span style="font-size:18px;opacity:0.8">›</span>';
+  c.insertBefore(b, c.firstChild);
+}
+
+function jeuQuitter() {
+  if (_jeu && _jeu.i < _jeu.questions.length) {
+    if (!confirm('Quitter maintenant ? La partie est déjà commencée : les questions restantes compteront comme fausses.')) return;
+    jeuFinir();
+    return;
+  }
+  goTo('screen-home');
+}
+
+function renderJeu() {
+  var z = document.getElementById('jeu-zone');
+  if (!z) return;
+  if (_jeu) return;   // partie en cours : on ne touche pas à l'écran
+  var attente = jeuLocal('attente');
+  if (attente) { jeuEnvoyer(attente); return; }
+  z.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dark-gray)">Chargement…</div>';
+  if (!navigator.onLine) { z.innerHTML = jeuMsg('&#128245;', 'Connexion nécessaire', 'Le jeu se joue en ligne pour que tout le monde ait les mêmes questions.'); return; }
+  apiJsonp({ action: 'getJeu' }, { timeout: 20000, retries: 2 }).then(function(et) {
+    if (!et || et.status !== 'ok') throw new Error((et && et.message) || 'réponse vide');
+    jeuLocal('etat', et);
+    jeuAccueil(et);
+  }).catch(function() {
+    var et = jeuLocal('etat');
+    if (et && et.semaine === jeuLundi()) jeuAccueil(et);
+    else z.innerHTML = jeuMsg('&#9888;&#65039;', 'Jeu indisponible', 'Réessaie dans un instant.');
+  });
+}
+
+function jeuMsg(ic, titre, txt) {
+  return '<div style="text-align:center;padding:40px 10px"><div style="font-size:44px">' + ic + '</div>' +
+    '<div style="font-weight:700;font-size:17px;margin:10px 0 6px">' + titre + '</div>' +
+    '<div style="font-size:13px;color:var(--dark-gray);line-height:1.5">' + txt + '</div></div>';
+}
+
+function jeuAccueil(et, fin) {
+  var z = document.getElementById('jeu-zone');
+  var h = '';
+  if (fin) {
+    h += '<div style="text-align:center;padding:10px 0 4px"><div style="font-size:44px">' + (fin.bonnes >= fin.total * 0.8 ? '&#127942;' : fin.bonnes >= fin.total / 2 ? '&#128079;' : '&#128170;') + '</div>' +
+      '<div style="font-family:\'Playfair Display\',serif;font-size:34px">' + fin.bonnes + ' / ' + fin.total + '</div>' +
+      '<div style="font-size:13px;color:var(--dark-gray)">' + fin.points + ' points · ' + jeuTemps(fin.tempsMs) +
+      (fin.bonus ? ' · bonus série +' + fin.bonus + ' %' : '') + '</div></div>';
+    if (fin.correction && fin.correction.length) {
+      h += '<details class="cc-acc cc-card" style="margin:14px 0"><summary>Correction</summary><div class="cc-acc-body">' +
+        fin.correction.map(function(c, i) {
+          return '<div style="padding:8px 0;border-bottom:1px solid var(--beige);font-size:13px">' +
+            '<div style="font-weight:600">' + (c.ok ? '&#9989; ' : '&#10060; ') + (i + 1) + '. ' + escHtml(c.q) + '</div>' +
+            (c.ok ? '' : '<div style="color:var(--dark-gray);margin-top:3px">' + (c.choisie ? 'Ta réponse : ' + escHtml(c.choisie) + ' · ' : 'Temps écoulé · ') + 'Bonne réponse : <b>' + escHtml(c.bonne) + '</b></div>') +
+          '</div>';
+        }).join('') + '</div></details>';
+    }
+  } else if (et.moi && et.moi.joue) {
+    h += jeuMsg('&#9989;', 'Déjà joué cette semaine', et.moi.bonnes + ' / ' + et.moi.total + ' · ' + et.moi.points + ' points — rendez-vous lundi pour de nouvelles questions.');
+  } else if (et.moi && et.moi.enCours) {
+    h += jeuMsg('&#9203;', 'Partie interrompue', 'Ta partie de la semaine a été commencée mais pas terminée : elle compte pour 0. Nouvelles questions lundi.');
+  } else if (!et.nbQuestions) {
+    h += jeuMsg('&#128237;', 'Pas encore de questions', 'Le jeu démarrera dès que la banque de questions sera remplie.');
+  } else {
+    var s = Number(et.moi && et.moi.serie) || 1, bonus = s > 1 ? 10 : 0;
+    h += '<div style="text-align:center;padding:16px 0 8px"><div style="font-size:48px">&#127919;</div>' +
+      '<div style="font-family:\'Playfair Display\',serif;font-size:24px;margin:6px 0">Jeu de la semaine</div>' +
+      '<div style="font-size:13px;color:var(--dark-gray);line-height:1.6">' + et.nbQuestions + ' questions · ' + et.secondes + ' s par question<br>Une seule partie par semaine : une fois lancée, elle compte.' +
+      (bonus ? '<br>&#128293; Série en cours : <b>+' + bonus + ' %</b> si tu joues cette semaine' : '') + '</div></div>' +
+      '<button class="btn btn-primary" style="margin:10px 0 18px" onclick="jeuLancer(this)">C\'est parti !</button>';
+  }
+  if (et.gagnantPrec) h += '<div style="background:var(--beige);border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:14px">&#127942; Semaine dernière : <b>' + escHtml(et.gagnantPrec.secteur) + '</b> (' + et.gagnantPrec.points + ' pts)</div>';
+  h += jeuTableau('Classement de la semaine', et.semaineCls) + jeuTableau('Classement du mois', et.moisCls);
+  h += '<button class="btn btn-ghost" style="margin-top:8px" onclick="goTo(\'screen-home\')">Retour à l\'accueil</button>';
+  z.innerHTML = h;
+}
+
+function jeuTableau(titre, cls) {
+  var monSect = currentAccount ? currentAccount.sector : '';
+  var med = ['&#129351;', '&#129352;', '&#129353;'];
+  var h = '<div style="font-size:13px;font-weight:700;margin:16px 0 8px">' + titre + '</div>';
+  if (!cls || !cls.length) return h + '<div style="font-size:12px;color:var(--dark-gray)">Personne n\'a encore joué.</div>';
+  return h + cls.map(function(c, i) {
+    var moi = c.secteur === monSect;
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;margin-bottom:4px;' + (moi ? 'background:rgba(var(--brand-rgb),0.08);font-weight:700' : 'background:var(--white)') + '">' +
+      '<span style="width:26px;text-align:center">' + (med[i] || (i + 1)) + '</span>' +
+      '<span style="flex:1">' + escHtml(c.secteur) + '</span>' +
+      '<span style="font-size:11px;color:var(--dark-gray)">' + c.joueurs + '/' + c.comptes + ' joueur' + (c.comptes > 1 ? 's' : '') + '</span>' +
+      '<span style="min-width:62px;text-align:right">' + c.points + ' pts</span></div>';
+  }).join('');
+}
+
+function jeuLancer(btn) {
+  if (!navigator.onLine) { showToast('📵 Connexion nécessaire'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Chargement…'; }
+  apiPostJSON({ action: 'jeuDemarrer' }).then(function(r) {
+    if (r && r.status === 'ok' && r.deja) { jeuLocal('etat', r.etat); jeuAccueil(r.etat); return; }
+    if (!r || r.status !== 'ok' || !r.questions || !r.questions.length) throw new Error((r && r.message) || 'réponse vide');
+    _jeu = { semaine: r.semaine, secondes: r.secondes || 15, questions: r.questions, i: 0, reponses: [] };
+    jeuQuestion();
+  }).catch(function(e) {
+    showToast('⚠️ ' + (e && e.message ? e.message : 'Échec réseau'));
+    if (btn) { btn.disabled = false; btn.textContent = 'C\'est parti !'; }
+  });
+}
+
+function jeuQuestion() {
+  var q = _jeu.questions[_jeu.i], n = _jeu.questions.length, z = document.getElementById('jeu-zone');
+  var L = ['A', 'B', 'C', 'D'];
+  z.innerHTML = '<div class="quiz-progress-bar"><div class="quiz-progress-fill" style="width:' + Math.round(_jeu.i / n * 100) + '%"></div></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+      '<div class="quiz-question-count" style="margin:0">Question ' + (_jeu.i + 1) + ' / ' + n + '</div>' +
+      '<div id="jeu-chrono" style="font-weight:800;font-size:18px;color:var(--brand)">' + _jeu.secondes + '</div></div>' +
+    '<div style="height:6px;background:var(--beige);border-radius:3px;overflow:hidden;margin-bottom:18px"><div id="jeu-barre" style="height:100%;width:100%;background:var(--brand)"></div></div>' +
+    '<div class="quiz-question-text fade-up">' + escHtml(q.q) + '</div>' +
+    '<div class="quiz-options fade-up">' + q.choix.map(function(c, k) {
+      return '<button class="quiz-option" id="jeu-opt-' + k + '" onclick="jeuRepondre(' + c.i + ',' + k + ')"><span class="quiz-option-letter">' + L[k] + '</span>' + escHtml(c.t) + '</button>';
+    }).join('') + '</div>';
+  _jeu.t0 = Date.now();
+  _jeu.repondu = false;
+  clearInterval(_jeu.timer);
+  _jeu.timer = setInterval(function() {
+    var ms = Date.now() - _jeu.t0, reste = Math.max(0, _jeu.secondes * 1000 - ms);
+    var ch = document.getElementById('jeu-chrono'), ba = document.getElementById('jeu-barre');
+    if (ch) ch.textContent = Math.ceil(reste / 1000);
+    if (ba) { ba.style.width = (reste / (_jeu.secondes * 10)) + '%'; if (reste < 5000) ba.style.background = '#E0A100'; }
+    if (reste <= 0) jeuRepondre(null, -1);
+  }, 100);
+}
+
+function jeuRepondre(choix, k) {
+  if (!_jeu || _jeu.repondu) return;
+  _jeu.repondu = true;
+  clearInterval(_jeu.timer);
+  var ms = Math.min(Date.now() - _jeu.t0, _jeu.secondes * 1000);
+  _jeu.reponses.push({ id: _jeu.questions[_jeu.i].id, choix: choix, ms: ms });
+  jeuLocal('attente', { semaine: _jeu.semaine, reponses: _jeu.reponses, partiel: true });   // filet si l'appli se ferme
+  var b = document.getElementById('jeu-opt-' + k);
+  if (b) b.classList.add('selected');
+  else showToast('⏰ Temps écoulé');
+  setTimeout(function() {
+    _jeu.i++;
+    if (_jeu.i < _jeu.questions.length) jeuQuestion(); else jeuFinir();
+  }, 450);
+}
+
+function jeuFinir() {
+  clearInterval(_jeu.timer);
+  var p = { semaine: _jeu.semaine, reponses: _jeu.reponses };
+  _jeu = null;
+  jeuLocal('attente', p);
+  jeuEnvoyer(p);
+}
+
+function jeuEnvoyer(p) {
+  var z = document.getElementById('jeu-zone');
+  if (z) z.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dark-gray)">Calcul du score…</div>';
+  apiPostJSON({ action: 'jeuTerminer', semaine: p.semaine, reponses: p.reponses }).then(function(r) {
+    if (!r || r.status !== 'ok') throw new Error((r && r.message) || 'réponse vide');
+    jeuLocal('attente', null);
+    if (r.etat) jeuLocal('etat', r.etat);
+    if (r.deja) jeuAccueil(r.etat); else jeuAccueil(r.etat, r);
+    try { logEvent('jeu', (r.bonnes || 0) + '/' + (r.total || 0)); } catch (e) {}
+  }).catch(function() {
+    if (z) z.innerHTML = jeuMsg('&#128246;', 'Score gardé sur le téléphone', 'Il sera envoyé à la prochaine ouverture du jeu avec du réseau.') +
+      '<button class="btn btn-primary" onclick="renderJeu()">Réessayer</button>';
+  });
+}
 </script>
 </body>
 </html>
