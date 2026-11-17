@@ -1,4 +1,5 @@
 // Canon Focus — Service Worker
+// © 2026 Grégory Vandenbruggen — Tous droits réservés.
 // ─────────────────────────────────────────────────────────────────────────────
 // VERSIONS INDÉPENDANTES : index.html et beta.html ont chacun leur cache.
 // Bumper l'une ne purge PAS l'autre.
@@ -9,7 +10,7 @@
 // structure localStorage, cache corrompu, version figée chez un testeur).
 // ─────────────────────────────────────────────────────────────────────────────
 const VERSION_INDEX  = 'v4.1.4';   // ← bump = purge chez les utilisateurs d'index.html
-const VERSION_BETA   = 'v4.3.3';   // ← bump = purge chez les bêta-testeurs uniquement
+const VERSION_BETA   = 'v4.3.4';   // ← bump = purge chez les bêta-testeurs uniquement
 const VERSION_ASSETS = 'v1';       // autres ressources same-origin (rarement bumpé)
 
 const CACHE_INDEX  = 'canon-focus-index-'  + VERSION_INDEX;
@@ -21,15 +22,18 @@ const IMG_CACHE    = 'canon-focus-images-v1'; // jamais purgé aux montées de v
 const KEEP_CACHES = [CACHE_INDEX, CACHE_BETA, CACHE_ASSETS, IMG_CACHE];
 
 const HTML_TIMEOUT_MS = 4000;              // au-delà, on sert la copie locale (réseau faible)
-const PAGE_INDEX = '/canon-quiz/index.html';
-const PAGE_BETA  = '/canon-quiz/beta.html';
+// Dossier du site, déduit de l'adresse du service worker : fonctionne à n'importe quelle adresse
+const BASE = new URL('./', self.location).pathname;
+const BASE_SANS = BASE.replace(/\/$/, '');
+const PAGE_INDEX = BASE + 'index.html';
+const PAGE_BETA  = BASE + 'beta.html';
 const URLS_TO_CACHE = [PAGE_INDEX, PAGE_BETA];
 
-// Une seule clé de cache par page (sans paramètres, "/canon-quiz/" = index.html)
+// Une seule clé de cache par page (sans paramètres, le dossier seul = index.html)
 function htmlKey(url) {
   var u = new URL(url);
   var p = u.pathname;
-  if (p === '/canon-quiz' || p === '/canon-quiz/') p = PAGE_INDEX;
+  if (p === BASE_SANS || p === BASE) p = PAGE_INDEX;
   return u.origin + p;
 }
 
@@ -44,7 +48,7 @@ function cacheNameForUrl(url) {
 function isHTMLRequest(req) {
   if (req.mode === 'navigate') return true;
   var p = new URL(req.url).pathname;
-  return p === '/canon-quiz' || p === '/canon-quiz/' ||
+  return p === BASE_SANS || p === BASE ||
          p === PAGE_INDEX || p === PAGE_BETA;
 }
 
@@ -211,7 +215,7 @@ self.addEventListener('fetch', function(e) {
       url.indexOf('fonts.') > -1) return;
 
   // Le sw.js lui-même n'est jamais servi depuis le cache
-  if (url.indexOf('/canon-quiz/sw.js') > -1) return;
+  if (url.indexOf(BASE + 'sw.js') > -1) return;
 
   // Images de formation hébergées sur Drive : cache permanent, cache-first
   if (url.indexOf('lh3.googleusercontent.com') > -1 || url.indexOf('drive.google.com/thumbnail') > -1) {
