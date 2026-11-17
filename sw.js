@@ -10,7 +10,7 @@
 // structure localStorage, cache corrompu, version figée chez un testeur).
 // ─────────────────────────────────────────────────────────────────────────────
 const VERSION_INDEX  = 'v4.1.4';   // ← bump = purge chez les utilisateurs d'index.html
-const VERSION_BETA   = 'v4.3.4';   // ← bump = purge chez les bêta-testeurs uniquement
+const VERSION_BETA   = 'v4.3.5';   // ← bump = purge chez les bêta-testeurs uniquement
 const VERSION_ASSETS = 'v1';       // autres ressources same-origin (rarement bumpé)
 
 const CACHE_INDEX  = 'canon-focus-index-'  + VERSION_INDEX;
