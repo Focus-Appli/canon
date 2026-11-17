@@ -1,4 +1,10 @@
 <!DOCTYPE html>
+<!--
+  Focus — application terrain
+  © 2026 Grégory Vandenbruggen — Tous droits réservés.
+  Code source, conception et contenus protégés par le Code de la propriété intellectuelle.
+  Toute reproduction, modification ou diffusion, totale ou partielle, sans autorisation écrite de l'auteur est interdite.
+-->
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -855,6 +861,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
       <button class="btn btn-primary mb-8" id="reset-nouveau-btn" onclick="validerNouveauMdp()">Enregistrer le mot de passe</button>
       <button class="btn btn-secondary" onclick="abandonnerReset()">Annuler</button>
     </div>
+    <div class="gv-copy" style="margin-top:auto;padding:28px 0 8px;font-size:11px;color:var(--dark-gray);opacity:0.75;text-align:center">© 2026 G.V. — Tous droits réservés</div>
 
   </div>
 </div>
@@ -863,7 +870,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   <div class="topbar">
     <button class="btn-icon" id="home-admin-btn" onclick="openMgrMenu()" style="font-size:20px" title="Menu">&#9776;</button>
     <div style="flex:1;min-width:0"></div>
-    <div class="sync-badge offline" id="home-sync-badge" style="cursor:pointer" onclick="goTo('screen-sync-center')" title="Voir la synchronisation">
+    <div class="sync-badge offline" id="home-sync-badge" style="cursor:pointer" onclick="ouvrirEtatSync()" title="État de l'envoi">
       <div class="sync-dot"></div><span id="home-sync-label">Hors ligne</span>
     </div>
     <div class="topbar-user" id="home-topbar-user" style="display:none;cursor:default" title="Compte connecté">
@@ -928,9 +935,6 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     <button class="btn-icon" onclick="openMgrMenu()" style="font-size:20px">☰</button>
     <button class="btn btn-primary btn-sm" onclick="goTo('screen-create-quiz')" style="width:auto">+ Créer</button>
   </div>
-  <!-- Manager dropdown menu -->
-  <div id="mgr-menu-dropdown" style="display:none;position:fixed;top:60px;right:16px;background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:150;min-width:200px;overflow:hidden;border:1px solid var(--beige)"></div>
-  <div id="mgr-menu-overlay" style="display:none;position:fixed;inset:0;z-index:149" onclick="toggleMgrMenu()"></div>
   <div class="content">
     <div class="section-label mb-8">Quiz</div>
     <div id="quiz-list-container"></div>
@@ -975,7 +979,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   <div class="topbar">
     <button class="topbar-back" onclick="goTo('screen-home')">←</button>
     <span class="topbar-title">Faire passer un quiz</span>
-    <div class="sync-badge offline" id="cds-sync-badge" style="cursor:pointer" onclick="goTo('screen-sync-center')" title="Voir la synchronisation">
+    <div class="sync-badge offline" id="cds-sync-badge" style="cursor:pointer" onclick="ouvrirEtatSync()" title="État de l'envoi">
       <div class="sync-dot"></div><span id="cds-sync-label">Hors ligne</span>
     </div>
   </div>
@@ -1073,74 +1077,17 @@ window.appliquerMarqueSplash(window.marqueInitiale());
 </div>
 
 <!-- DASHBOARD -->
-<div class="screen" id="screen-dashboard">
-  <div class="topbar">
-    <button class="topbar-back" onclick="goTo('screen-home')">←</button>
-    <span class="topbar-title">Tableau de bord</span>
-    <button class="btn btn-secondary btn-sm" onclick="exportData()" style="width:auto">&#128229; Export</button>
-  </div>
-  <div class="content">
-    <div class="filter-bar" id="dashboard-filters"></div>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-value" id="dash-total">0</div><div class="stat-label">Total quiz</div></div>
-      <div class="stat-card"><div class="stat-value" id="dash-rate">—</div><div class="stat-label">Taux réussite</div></div>
-      <div class="stat-card"><div class="stat-value" id="dash-pending">0</div><div class="stat-label">En attente sync</div><div class="stat-badge orange" id="dash-pending-badge" style="display:none">À synchroniser</div></div>
-      <div class="stat-card"><div class="stat-value" id="dash-synced">0</div><div class="stat-label">Synchronisés</div><div class="stat-badge green">✓ Envoyés</div></div>
-    </div>
-    <div class="section-label">Par enseigne</div>
-    <div class="table-wrap" id="table-enseigne"></div>
-    <div class="section-label">Par secteur</div>
-    <div class="table-wrap" id="table-secteur"></div>
-    <div class="flex-between mb-8">
-      <div class="section-label" style="margin:0">Derniers résultats</div>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-secondary btn-sm" onclick="goTo('screen-history')" style="width:auto;font-size:11px">Historique</button>
-        <button class="btn btn-secondary btn-sm" onclick="goTo('screen-monthly')" style="width:auto;font-size:11px">Récap mensuel</button>
-      </div>
-    </div>
-    <div id="recent-results"></div>
-  </div>
-</div>
 
 <!-- PIN MANAGER -->
 <!-- HISTORIQUE -->
-<div class="screen" id="screen-history">
-  <div class="topbar">
-    <button class="topbar-back" onclick="goTo('screen-dashboard')">←</button>
-    <span class="topbar-title">Historique complet</span>
-    <button class="btn btn-secondary btn-sm" onclick="exportData()" style="width:auto">&#128229; CSV</button>
-  </div>
-  <div class="content">
-    <div class="filter-bar" id="history-filters"></div>
-    <div id="history-list"></div>
-  </div>
-</div>
 
 <!-- RECAP MENSUEL -->
-<div class="screen" id="screen-monthly">
-  <div class="topbar">
-    <button class="topbar-back" onclick="goTo('screen-dashboard')">←</button>
-    <span class="topbar-title">Récap mensuel</span>
-    <button class="btn btn-secondary btn-sm" onclick="exportMonthly()" style="width:auto">&#128229; CSV</button>
-  </div>
-  <div class="content">
-    <div class="filter-bar" id="monthly-month-filters"></div>
-    <div class="stats-grid" style="margin-bottom:16px">
-      <div class="stat-card"><div class="stat-value" id="monthly-total">0</div><div class="stat-label">Quiz du mois</div></div>
-      <div class="stat-card"><div class="stat-value" id="monthly-rate">—</div><div class="stat-label">Taux réussite</div></div>
-    </div>
-    <div class="section-label">Par enseigne</div>
-    <div class="table-wrap" id="monthly-table-enseigne"></div>
-    <div class="section-label" style="margin-top:16px">Par secteur</div>
-    <div class="table-wrap" id="monthly-table-secteur"></div>
-  </div>
-</div>
 
 <!-- MGR DASHBOARD -->
 <div class="screen" id="screen-mgr-dashboard">
   <div class="topbar">
     <button class="topbar-back" onclick="goTo('screen-home')">←</button>
-<span class="topbar-title">Centre de contrôle</span>
+<span class="topbar-title">Tableau de bord</span>
 <button class="btn-icon" onclick="openMgrMenu()" style="font-size:20px;margin-left:8px">☰</button>
     <button class="btn btn-primary btn-sm" onclick="exportDashboardExcel()" style="width:auto">&#128202; Export</button>
   </div>
@@ -1273,28 +1220,6 @@ window.appliquerMarqueSplash(window.marqueInitiale());
 </div>
 
 <!-- MANAGE CDS -->
-<div class="screen" id="screen-manage-cds">
-  <div class="topbar">
-    <button class="topbar-back" onclick="goTo('screen-home')">←</button>
-    <span class="topbar-title">Gérer les CDS</span>
-    <button class="btn btn-primary btn-sm" onclick="showAddCDS()" style="width:auto">+ Ajouter</button>
-  </div>
-  <div class="content">
-    <div id="cds-list-container"></div>
-    <div id="cds-form-panel" style="display:none;background:var(--white);border-radius:var(--radius);padding:18px;margin-top:16px;box-shadow:var(--shadow)">
-      <div style="font-size:14px;font-weight:700;margin-bottom:14px" id="cds-form-title">Nouveau CDS</div>
-      <div class="form-group"><label class="form-label">Nom complet *</label><input class="form-input" id="cds-form-name" placeholder="ex : Jean Dupont" /></div>
-      <div class="form-group">
-        <label class="form-label">Secteur *</label>
-        <select class="form-select" id="cds-form-sector"><option value="">— Choisir —</option></select>
-      </div>
-      <div class="form-group"><label class="form-label">Code PIN (4 chiffres) *</label><input class="form-input" id="cds-form-pin" type="number" placeholder="ex : 1234" maxlength="4" /></div>
-      <input type="hidden" id="cds-form-id" value="" />
-      <button class="btn btn-primary mb-8" onclick="saveCDS()">&#128190; Enregistrer</button>
-     <button class="btn btn-secondary" onclick="hideCDSForm()">Annuler</button>
-    </div>
-  </div>
-</div>
 
 <!-- FORMATEUR LOGIN -->
 <!-- FORMATEUR SPACE -->
@@ -1317,24 +1242,6 @@ window.appliquerMarqueSplash(window.marqueInitiale());
 </div>
 
 <!-- MANAGE FORMATEURS -->
-<div class="screen" id="screen-manage-formateurs">
-  <div class="topbar">
-    <button class="topbar-back" onclick="goTo('screen-home')">←</button>
-    <span class="topbar-title">Gérer les formateurs</span>
-    <button class="btn btn-primary btn-sm" onclick="showAddFormateur()" style="width:auto">+ Ajouter</button>
-  </div>
-  <div class="content">
-    <div id="formateur-list-container"></div>
-    <div id="formateur-form-panel" style="display:none;background:var(--white);border-radius:var(--radius);padding:18px;margin-top:16px;box-shadow:var(--shadow)">
-      <div style="font-size:14px;font-weight:700;margin-bottom:14px" id="fmt-form-title">Nouveau formateur</div>
-      <div class="form-group"><label class="form-label">Nom complet *</label><input class="form-input" id="fmt-form-name" placeholder="ex : Marie Martin" /></div>
-      <div class="form-group"><label class="form-label">Code PIN (4 chiffres) *</label><input class="form-input" id="fmt-form-pin" type="number" placeholder="ex : 2468" maxlength="4" /></div>
-      <input type="hidden" id="fmt-form-id" value="" />
-      <button class="btn btn-primary mb-8" onclick="saveFormateur()">&#128190; Enregistrer</button>
-      <button class="btn btn-secondary" onclick="hideFormateurForm()">Annuler</button>
-    </div>
-  </div>
-</div>
 
 <!-- MANAGE ACCOUNTS (COMPTES) -->
 <div class="screen" id="screen-manage-accounts">
@@ -2122,7 +2029,7 @@ var PARAM_DEFAUTS = {
   nom: 'Focus', nomCourt: 'Focus', motSplash: 'FOCUS', mention: '', couleur: '#CC0000', logo: '',
   libOffres: 'Offres', libOffresTuile: 'Offres', libOffresAccueil: 'Offres du mois',
   libOffresAccueilSous: 'Les offres en cours pour vos enseignes', offresExclues: '',
-  libFormateur: 'Formateur', sujetPromos: 'Promotions', categoriesFormation: '',
+  libFormateur: 'Formateur', libCDS: 'CDS', sujetPromos: 'Promotions', categoriesFormation: '',
   plvCategories: 'Général', plvStockSource: 'Stock', plvBonPrefixe: 'COMMANDE'
 };
 
@@ -2134,6 +2041,7 @@ var PARAM_DEFS = [
   { k: 'mention', lbl: "Mention en bas de l'écran d'ouverture", g: 'Marque', aide: 'Ex. le nom de votre agence' },
   { k: 'couleur', lbl: 'Couleur principale', g: 'Marque', type: 'couleur', aide: 'Code couleur, ex. #CC0000' },
   { k: 'logo', lbl: "Logo de l'écran d'ouverture", g: 'Marque', type: 'image', aide: 'Importé depuis l’application (pas depuis Excel)' },
+  { k: 'libCDS', lbl: 'Nom du rôle terrain', g: 'Marque', aide: 'Ex. CDS, Commercial, Animateur — badges, menus, accueil' },
   { k: 'modulesInactifs', lbl: 'Modules désactivés', g: 'Marque', type: 'modules', aide: 'Codes séparés par des virgules : quiz, rapports, formations, promos, offres, plv, magasins, anomalies, outils, tableurs' },
   { k: 'libOffres', lbl: 'Nom du module', g: 'Offres', aide: 'Tuile, titre de l’écran et messages. Ex. Offres ITO' },
   { k: 'libOffresAccueil', lbl: "Titre de l'encart de l'accueil", g: 'Offres' },
@@ -2670,7 +2578,7 @@ function supprimerLigneTableur(i) {
   var tc = _tabCourant; if (!tc || !tabEstGere()) return;
   var l = tc.lignes[i]; if (!l) return;
   var nom = (tabColsGrille(tc.structure)[0] || {}).nom;
-  if (!confirm('Supprimer la ligne « ' + (l.v[nom] || '(vide)') + ' » ?')) return;
+  if (!demander('supprimerLigneTableur', 'Supprimer la ligne « ' + (l.v[nom] || '(vide)') + ' » ?', supprimerLigneTableur, this, arguments)) return;
   apiPostJSON({ action: 'tableurLigne', op: 'supprimer', id: tc.id, cle: l.cle }).then(function(res) {
     if (!res || res.status !== 'ok') { showToast('⚠️ ' + ((res && res.message) || 'Suppression impossible')); return; }
     tc.lignes.splice(i, 1);
@@ -3096,7 +3004,7 @@ function importerTableur() {
   var titre = String(I.titre || '').trim();
   if (!titre) { showToast('⚠️ Donnez un titre au tableur'); return; }
   if (!I.colonnes.some(function(c) { return c.saisie; }) && !I.commentaire) { showToast('⚠️ Touchez au moins un en-tête pour le mettre « à remplir », ou gardez le commentaire'); return; }
-  if (I.ancien && !confirm('Remplacer le tableur déjà importé ?\nLes saisies faites dans l\'appli seront effacées.')) return;
+  if (I.ancien && !demander('importerTableur', 'Remplacer le tableur déjà importé ?\nLes saisies faites dans l\'appli seront effacées.', importerTableur, this, arguments)) return;
   if (!navigator.onLine) { showToast('⚠️ Connexion requise'); return; }
   var noms = I.colonnes.map(function(c) { return c.nom; }), lignes = [];
   I.onglets.forEach(function(o) {
@@ -3859,7 +3767,7 @@ function validerImport() {
     var i = t.indexOf(x), cb = document.getElementById('imp-rempl-' + i);
     return { nom: x.nom, lignes: x.lignes, remplacer: !!(cb && cb.checked) };
   });
-  if (etapes.some(function(e) { return e.remplacer; }) && !confirm('Remplacer entièrement les listes cochées ?\nLes éléments absents du fichier seront supprimés.')) return;
+  if (etapes.some(function(e) { return e.remplacer; }) && !demander('validerImport', 'Remplacer entièrement les listes cochées ?\nLes éléments absents du fichier seront supprimés.', validerImport, this, arguments)) return;
   fermerModalParam();
   _importEnCours = null;
   var bilan = [];
@@ -4171,7 +4079,7 @@ function enregistrerElementConfig() {
   envoyerTableConfig(_lcNom).then(function(ok) { if (ok) showToast('✅ Enregistré'); });
 }
 function supprimerElementConfig() {
-  if (!confirm('Supprimer cet élément ?')) return;
+  if (!demander('supprimerElementConfig', 'Supprimer cet élément ?', supprimerElementConfig, this, arguments)) return;
   var liste = refListe(_lcNom).slice(); liste.splice(_lcIdx, 1);
   db[_lcNom] = liste; saveDB(); appliquerConfigClient();
   fermerModalParam(); renderListeConfig();
@@ -4384,7 +4292,7 @@ function saveDB() {
           localStorage.setItem(DB_KEY, JSON.stringify(db));
           if (typeof showToast === 'function') showToast('⚠️ Mémoire saturée — formations purgées, appuie sur Actualiser');
         } catch (e4) {
-          alert('❌ Mémoire locale saturée.\n\n' + dbSizeReport() + '\nSynchronise, puis vide le cache.');
+          infoModal('❌ Mémoire locale saturée.\n\n' + dbSizeReport() + '\nSynchronise, puis vide le cache.');
         }
       }
     }
@@ -4395,7 +4303,7 @@ function saveDB() {
 // NAVIGATION
 
 function confirmQuit() {
-  if (confirm('Quitter le quiz en cours ?')) goTo('screen-cds');
+  confirmerModal('Quitter le quiz en cours ?', function() { goTo('screen-cds'); }, { ok: 'Quitter' });
 }
 // ══════════════════════════════════════════════════════════
 function onScreenEnter(id) {
@@ -4408,19 +4316,14 @@ function onScreenEnter(id) {
   if (id === 'screen-sync-center') renderSyncCenter();
   if (id === 'screen-manager') renderQuizList();
   if (id === 'screen-cds') { renderCDSQuizList(); initCDSEnseigneSelect(); }
-  if (id === 'screen-dashboard') renderDashboard();
-  if (id === 'screen-history') renderHistory();
   if (id === 'screen-mgr-dashboard') renderMgrDashboard();
   if (id === 'screen-cds-dashboard') renderCDSDashboard();
-  if (id === 'screen-manage-cds') renderManageCDS();
   if (id === 'screen-mgr-quiz-detail') initMgrQuizDetail();
   if (id === 'screen-formateur') renderFormateurSpace();
-  if (id === 'screen-manage-formateurs') renderManageFormateurs();
   if (id === 'screen-manage-roles') renderManageRoles();
   remplirReglages(id);
   if (id === 'screen-manage-sectors') { renderManageSectors(); updateAllSectorDropdowns(); }
   if (id === 'screen-manage-pdv') initManagePDV();
-  if (id === 'screen-monthly') renderMonthly();
   if (id === 'screen-create-quiz') initCreateQuiz();
   if (id === 'screen-manage-accounts') renderManageAccounts();
   if (id === 'screen-promos') initPromoScreen();
@@ -4535,7 +4438,7 @@ function renderHome() {
   if (_hn) _hn.textContent = (currentAccount.name || '').split(' ')[0] || currentAccount.name || '';
   var _hl = document.getElementById('home-hero-label');
   if (_hl) {
-    var _role = hasRole('manager') ? 'Espace Manager' : hasRole('admin') ? 'Espace Admin' : hasRole('cds') ? 'Espace CDS' : hasRole('formateur') ? 'Espace Formateur' : hasRole('referent') ? 'Référent Enseigne' : (premierRolePerso() ? premierRolePerso().nom : 'Espace');
+    var _role = hasRole('manager') ? 'Espace Manager' : hasRole('admin') ? 'Espace Admin' : hasRole('cds') ? 'Espace ' + P('libCDS') : hasRole('formateur') ? 'Espace Formateur' : hasRole('referent') ? 'Référent Enseigne' : (premierRolePerso() ? premierRolePerso().nom : 'Espace');
     _hl.textContent = _role + ' · ' + new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   }
   var mesMagEl = document.getElementById('home-mes-magasins');
@@ -4759,7 +4662,7 @@ goTo('screen-manager');
 }
 
 function deleteQuiz(id) {
-  if (!confirm('Supprimer ce quiz et tout son historique ?')) return;
+  if (!demander('deleteQuiz', 'Supprimer ce quiz et tout son historique ?', deleteQuiz, this, arguments)) return;
   db.quizzes = db.quizzes.filter(q => q.id !== id);
   db.results = db.results.filter(r => r.quizId !== id);
   if (!db.deletedQuizIds) db.deletedQuizIds = [];
@@ -5278,7 +5181,7 @@ function ajouterPieceComm(input) {
 }
 function retirerPieceComm(k) {
   var o = commOffreEdit(); if (!o || !o.pieces) return;
-  if (!confirm('Retirer « ' + o.pieces[k].nom + ' » ?')) return;
+  if (!demander('retirerPieceComm', 'Retirer « ' + o.pieces[k].nom + ' » ?', retirerPieceComm, this, arguments)) return;
   o.pieces.splice(k, 1); saveDB(); renderPiecesComm();
 }
 function renderPiecesComm() {
@@ -5428,7 +5331,7 @@ function supprimerOffreITO() {
   if (!canEditOffresITO()) { showToast('❌ Suppression réservée au manager et à l\'admin'); return; }
   var liste = offresDe(_editItoEnseigne);
   if (!liste.length) return;
-  if (!confirm('Supprimer l\'offre « ' + (liste[_editItoIndex].titre || 'sans titre') + ' » ?')) return;
+  if (!demander('supprimerOffreITO', 'Supprimer l\'offre « ' + (liste[_editItoIndex].titre || 'sans titre') + ' » ?', supprimerOffreITO, this, arguments)) return;
   liste.splice(_editItoIndex, 1);
   if (_editItoIndex >= liste.length) _editItoIndex = liste.length ? liste.length - 1 : 0;
   saveDB();
@@ -5474,7 +5377,7 @@ function ajouterSectionOffre() {
 }
 
 function supprimerSectionOffre(si) {
-  if (!confirm('Supprimer cette section ?')) return;
+  if (!demander('supprimerSectionOffre', 'Supprimer cette section ?', supprimerSectionOffre, this, arguments)) return;
   sectionsDe(_editItoEnseigne).splice(si, 1);
   renderSectionsEditor();
 }
@@ -5814,89 +5717,8 @@ async function syncNow() {
 // ══════════════════════════════════════════════════════════
 let dashFilter = 'Tous';
 
-function renderDashboard() {
-  const enseignes = ['Tous', ...new Set(db.results.map(r => r.enseigne))];
-  document.getElementById('dashboard-filters').innerHTML = enseignes.map(e => `
-    <div class="filter-chip ${dashFilter === e ? 'active' : ''}" onclick="setDashFilter('${e}')">${e}</div>`).join('');
-
-  const filtered = dashFilter === 'Tous' ? db.results : db.results.filter(r => r.enseigne === dashFilter);
-  const total = filtered.length;
-  const passed = filtered.filter(r => r.passed).length;
-  const pending = filtered.filter(r => !r.synced).length;
-  const synced = filtered.filter(r => r.synced).length;
-
-  document.getElementById('dash-total').textContent = total;
-  document.getElementById('dash-rate').textContent = total ? Math.round(passed/total*100) + '%' : '—';
-  document.getElementById('dash-pending').textContent = pending;
-  document.getElementById('dash-synced').textContent = synced;
-  const pb = document.getElementById('dash-pending-badge');
-  pb.style.display = pending > 0 ? 'inline-block' : 'none';
-
-  // Table by enseigne
-  const byEnseigne = {};
-  filtered.forEach(r => {
-    if (!byEnseigne[r.enseigne]) byEnseigne[r.enseigne] = { total: 0, passed: 0 };
-    byEnseigne[r.enseigne].total++;
-    if (r.passed) byEnseigne[r.enseigne].passed++;
-  });
-  const ensRows = Object.entries(byEnseigne).sort((a,b) => b[1].total - a[1].total);
-  document.getElementById('table-enseigne').innerHTML = ensRows.length === 0 ? '<div style="padding:16px;text-align:center;color:var(--dark-gray);font-size:13px">Aucun résultat</div>' : `
-    <div class="table-head table-4"><span>Enseigne</span><span>Quiz</span><span>Réussite</span><span>Taux</span></div>
-    ${ensRows.map(([enseigne, d]) => {
-      const taux = Math.round(d.passed/d.total*100);
-      const cls = taux >= 70 ? 'high' : taux >= 50 ? 'mid' : 'low';
-      return `<div class="table-row table-4">
-        <div class="table-cell bold">${escHtml(enseigne)}</div>
-        <div class="table-cell">${d.total}</div>
-        <div class="table-cell">${d.passed}/${d.total}</div>
-        <div class="table-cell"><span class="score-pill ${cls}">${taux}%</span></div>
-      </div>`;
-    }).join('')}`;
-
-  // Table by secteur
-  const bySecteur = {};
-  filtered.forEach(r => {
-    const sec = resolveSecteur(r);
-    if (!bySecteur[sec]) bySecteur[sec] = { total: 0, passed: 0, label: sec };
-    bySecteur[sec].total++;
-    if (r.passed) bySecteur[sec].passed++;
-  });
-  const secRows = Object.entries(bySecteur).sort((a,b) => b[1].total - a[1].total);
-  document.getElementById('table-secteur').innerHTML = secRows.length === 0 ? '<div style="padding:16px;text-align:center;color:var(--dark-gray);font-size:13px">Aucun résultat</div>' : `
-    <div class="table-head table-4"><span>Secteur</span><span>Quiz</span><span>Réussite</span><span>Taux</span></div>
-    ${secRows.map(([sec, d]) => {
-      const taux = Math.round(d.passed/d.total*100);
-      const cls = taux >= 70 ? 'high' : taux >= 50 ? 'mid' : 'low';
-      return `<div class="table-row table-4">
-        <div class="table-cell bold">${sec}</div>
-        <div class="table-cell">${d.total}</div>
-        <div class="table-cell">${d.passed}/${d.total}</div>
-        <div class="table-cell"><span class="score-pill ${cls}">${taux}%</span></div>
-      </div>`;
-    }).join('')}`;
-
-  // Recent results
-  const recent = [...filtered].sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 10);
-  document.getElementById('recent-results').innerHTML = recent.map(r => `
-    <div class="quiz-card" style="cursor:default">
-      <div class="quiz-card-icon">${r.passed ? '✅' : '❌'}</div>
-      <div class="quiz-card-body">
-        <div class="quiz-card-title">${escHtml(r.quizName)}</div>
-        <div class="quiz-card-meta">${escHtml(r.enseigne)} · ${escHtml(r.magasin)}</div>
-        <div style="margin-top:4px;font-size:11px;color:var(--dark-gray)">${r.cds.split(' — ')[0]} · ${new Date(r.date).toLocaleDateString('fr-FR')}</div>
-      </div>
-      <div>
-        <span class="score-pill ${r.pct>=70?'high':r.pct>=50?'mid':'low'}">${r.pct}%</span>
-        <div style="font-size:10px;color:var(--dark-gray);text-align:center;margin-top:4px">${r.synced ? '☁️':'⏳'}</div>
-      </div>
-    </div>`).join('');
-}
-
-function setDashFilter(f) {
-  dashFilter = f;
-  renderDashboard();
-}
-
+/* renderDashboard : retirée (ménage) */
+/* setDashFilter : retirée (ménage) */
 // ══════════════════════════════════════════════════════════
 // EXPORT CSV
 // ══════════════════════════════════════════════════════════
@@ -6342,7 +6164,7 @@ function downloadFormationPdf(id) {
 function deleteFormationDoc(id) {
   var f = _getFormation(id);
   if (!f) return;
-  if (!confirm('Supprimer définitivement « ' + (f.title || '') + ' » ?')) return;
+  if (!demander('deleteFormationDoc', 'Supprimer définitivement « ' + (f.title || '') + ' » ?', deleteFormationDoc, this, arguments)) return;
   db.formations = (db.formations || []).filter(function (x) { return x.id !== id; });
   if (!db.deletedFormationIds) db.deletedFormationIds = [];
   if (db.deletedFormationIds.indexOf(id) === -1) db.deletedFormationIds.push(id);
@@ -6573,88 +6395,12 @@ function goToCDSQuiz() {
 // ══════════════════════════════════════════════════════════
 // MANAGE CDS LIST
 // ══════════════════════════════════════════════════════════
-function renderManageCDS() {
-  if (!db.cdsList) db.cdsList = [];
-  var c = document.getElementById('cds-list-container');
-
-  if (!db.cdsList.length) {
-    c.innerHTML = '<div class="empty-state"><div class="empty-state-icon">👥</div><div class="empty-state-title">Aucun CDS configuré</div><div class="empty-state-sub">Ajoutez vos 12 Chefs de Secteur avec leur PIN personnel.</div></div>';
-    return;
-  }
-
-  c.innerHTML = db.cdsList.map(function(cds) {
-    return '<div class="quiz-card fade-up">' +
-      '<div class="quiz-card-icon">👤</div>' +
-      '<div class="quiz-card-body">' +
-        '<div class="quiz-card-title">' + escHtml(cds.name) + '</div>' +
-        '<div class="quiz-card-meta">' + escHtml(cds.sector) + ' · PIN : ' + String(cds.pin).replace(/./g,'●') + '</div>' +
-      '</div>' +
-      '<div class="quiz-card-actions">' +
-        '<button class="btn-icon" onclick="editCDS(\'' + cds.id + '\')">✏️</button>' +
-        '<button class="btn-icon danger" onclick="deleteCDS(\'' + cds.id + '\')">🗑️</button>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-}
-
-function showAddCDS() {
-  updateAllSectorDropdowns();
-  document.getElementById('cds-form-id').value = '';
-  document.getElementById('cds-form-name').value = '';
-  document.getElementById('cds-form-sector').value = '';
-  document.getElementById('cds-form-pin').value = '';
-  document.getElementById('cds-form-title').textContent = 'Nouveau CDS';
-  document.getElementById('cds-form-panel').style.display = 'block';
-}
-
-function hideCDSForm() {
-  document.getElementById('cds-form-panel').style.display = 'none';
-}
-
-function editCDS(id) {
-  var cds = (db.cdsList || []).find(function(c) { return c.id === id; });
-  if (!cds) return;
-  document.getElementById('cds-form-id').value = cds.id;
-  document.getElementById('cds-form-name').value = cds.name;
-  document.getElementById('cds-form-sector').value = cds.sector;
-  document.getElementById('cds-form-pin').value = cds.pin;
-  document.getElementById('cds-form-title').textContent = 'Modifier le CDS';
-  document.getElementById('cds-form-panel').style.display = 'block';
-}
-
-function saveCDS() {
-  var name = document.getElementById('cds-form-name').value.trim();
-  var sector = document.getElementById('cds-form-sector').value;
-  var pin = document.getElementById('cds-form-pin').value.trim();
-  var id = document.getElementById('cds-form-id').value;
-
-  if (!name || !sector || !pin) { showToast('❌ Remplis tous les champs'); return; }
-  if (pin.length !== 4 || isNaN(pin)) { showToast('❌ Le PIN doit être 4 chiffres'); return; }
-
-  if (!db.cdsList) db.cdsList = [];
-
-  if (id) {
-    var idx = db.cdsList.findIndex(function(c) { return c.id === id; });
-    if (idx > -1) db.cdsList[idx] = { id: id, name: name, sector: sector, pin: pin };
-  } else {
-    db.cdsList.push({ id: 'cds_' + Date.now(), name: name, sector: sector, pin: pin });
-  }
-
-  saveDB();
-  hideCDSForm();
-  renderManageCDS();
-  showToast('✅ CDS enregistré');
-  if (isOnline) syncConfig();
-}
-
-function deleteCDS(id) {
-  if (!confirm('Supprimer ce CDS ?')) return;
-  db.cdsList = (db.cdsList || []).filter(function(c) { return c.id !== id; });
-  saveDB();
-  renderManageCDS();
-  showToast('🗑️ CDS supprimé');
-}
-
+/* renderManageCDS : retirée (ménage) */
+/* showAddCDS : retirée (ménage) */
+/* hideCDSForm : retirée (ménage) */
+/* editCDS : retirée (ménage) */
+/* saveCDS : retirée (ménage) */
+/* deleteCDS : retirée (ménage) */
 // ══════════════════════════════════════════════════════════
 // RANKING MENSUEL
 // ══════════════════════════════════════════════════════════
@@ -6793,7 +6539,7 @@ function addSector() {
 }
 
 function deleteSector(idx) {
-  if (!confirm('Supprimer ce secteur ?')) return;
+  if (!demander('deleteSector', 'Supprimer ce secteur ?', deleteSector, this, arguments)) return;
   if (!db.sectors) db.sectors = getSectors().slice();
   db.sectors.splice(idx, 1);
   saveDB();
@@ -6891,85 +6637,12 @@ function fmtDeleteQuiz(id) {
 }
 
 // ── Manage formateurs ─────────────────────────────────────────────────────────
-function renderManageFormateurs() {
-  if (!db.formateursList) db.formateursList = [];
-  var c = document.getElementById('formateur-list-container');
-  if (!c) return;
-
-  if (!db.formateursList.length) {
-    c.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🎓</div><div class="empty-state-title">Aucun formateur</div><div class="empty-state-sub">Ajoutez vos formateurs avec leur PIN personnel.</div></div>';
-    return;
-  }
-
-  c.innerHTML = db.formateursList.map(function(f) {
-    return '<div class="quiz-card fade-up">' +
-      '<div class="quiz-card-icon">🎓</div>' +
-      '<div class="quiz-card-body">' +
-        '<div class="quiz-card-title">' + escHtml(f.name) + '</div>' +
-        '<div class="quiz-card-meta">PIN : ' + String(f.pin).replace(/./g,'●') + '</div>' +
-      '</div>' +
-      '<div class="quiz-card-actions">' +
-        '<button class="btn-icon" onclick="editFormateur(\'' + f.id + '\')">✏️</button>' +
-        '<button class="btn-icon danger" onclick="deleteFormateur(\'' + f.id + '\')">🗑️</button>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-}
-
-function showAddFormateur() {
-  document.getElementById('fmt-form-id').value = '';
-  document.getElementById('fmt-form-name').value = '';
-  document.getElementById('fmt-form-pin').value = '';
-  document.getElementById('fmt-form-title').textContent = 'Nouveau formateur';
-  document.getElementById('formateur-form-panel').style.display = 'block';
-}
-
-function hideFormateurForm() {
-  document.getElementById('formateur-form-panel').style.display = 'none';
-}
-
-function editFormateur(id) {
-  var f = (db.formateursList || []).find(function(x) { return x.id === id; });
-  if (!f) return;
-  document.getElementById('fmt-form-id').value = f.id;
-  document.getElementById('fmt-form-name').value = f.name;
-  document.getElementById('fmt-form-pin').value = f.pin;
-  document.getElementById('fmt-form-title').textContent = 'Modifier le formateur';
-  document.getElementById('formateur-form-panel').style.display = 'block';
-}
-
-function saveFormateur() {
-  var name = document.getElementById('fmt-form-name').value.trim();
-  var pin = document.getElementById('fmt-form-pin').value.trim();
-  var id = document.getElementById('fmt-form-id').value;
-
-  if (!name || !pin) { showToast('❌ Remplis tous les champs'); return; }
-  if (pin.length !== 4 || isNaN(pin)) { showToast('❌ Le PIN doit être 4 chiffres'); return; }
-
-  if (!db.formateursList) db.formateursList = [];
-
-  if (id) {
-    var idx = db.formateursList.findIndex(function(f) { return f.id === id; });
-    if (idx > -1) db.formateursList[idx] = { id: id, name: name, pin: pin };
-  } else {
-    db.formateursList.push({ id: 'fmt_' + Date.now(), name: name, pin: pin });
-  }
-
-  saveDB();
-  hideFormateurForm();
-  renderManageFormateurs();
-  showToast('✅ Formateur enregistré');
-  if (isOnline) syncConfig();
-}
-
-function deleteFormateur(id) {
-  if (!confirm('Supprimer ce formateur ?')) return;
-  db.formateursList = (db.formateursList || []).filter(function(f) { return f.id !== id; });
-  saveDB();
-  renderManageFormateurs();
-  showToast('🗑️ Formateur supprimé');
-}
-
+/* renderManageFormateurs : retirée (ménage) */
+/* showAddFormateur : retirée (ménage) */
+/* hideFormateurForm : retirée (ménage) */
+/* editFormateur : retirée (ménage) */
+/* saveFormateur : retirée (ménage) */
+/* deleteFormateur : retirée (ménage) */
 
 // ══════════════════════════════════════════════════════════
 // MANAGER QUIZ DETAIL — tous les questionnaires complétés
@@ -7253,112 +6926,8 @@ function onMagasinSelectChange() {
   // No action needed — startQuiz reads cds-magasin-select directly
 }
 
-function openMgrMenu() {
-  var existing = document.getElementById('mgr-nav-overlay');
-  if (existing) { existing.remove(); return; }
-  var isManager = currentAccount && hasRole('manager');
-  // Chaque ligne dit qui y a droit. cfg:true = ligne qui modifie l'appli → rangée dans « Configuration »
-  var pourRole = function(roles) { return roles.some(function(r) { return hasRole(r); }); };
-  var items = [];
-
-  // ── Utilisation courante ──
-  items.push({icon:'🏠', label:'Accueil', screen:'screen-home'});
-  if (aAcces('dashmgr'))    items.push({icon:'📊', label:'Dashboard', screen:'screen-mgr-dashboard'});
-  if (aAcces('quizdetail')) items.push({icon:'📋', label:'Détail Quiz', screen:'screen-mgr-quiz-detail'});
-  if (aAcces('dashmgr'))    items.push({icon:'📄', label:'Tous les rapports', screen:'screen-rapports'});
-  if (aAcces('plv'))        items.push({icon:'🛒', label:'Commande PLV', screen:'screen-plv'});
-  if (aAcces('anomalie'))   items.push({icon:'🚩', label:'Report anomalie', screen:'screen-anomalie'});
-  if (aAcces('outils'))     items.push({icon:'🔗', label:'Mes outils', screen:'screen-outils'});
-  if (aAcces('tableurs') && (tableursVisibles().length || hasRole('manager'))) items.push({icon:'📑', label:'Tableurs', screen:'screen-tableurs'});
-
-  // ── Configuration ──
-  if (aAcces('questionnaires')) items.push({icon:'📝', label:'Questionnaires', screen:'screen-manager', cfg:true});
-  if (isManager) {
-    items.push({icon:'👥', label:'Gérer les comptes', screen:'screen-manage-accounts', cfg:true});
-    items.push({icon:'🛡️', label:'Gérer les rôles', screen:'screen-manage-roles', cfg:true});
-    items.push({icon:'🏢', label:'Gérer les enseignes', screen:'screen-manage-enseignes', cfg:true});
-    items.push({icon:'🗂️', label:'Gérer les catégories', screen:'screen-manage-categories', cfg:true});
-    items.push({icon:'📍', label:'Points de vente', screen:'screen-manage-pdv', cfg:true});
-    items.push({icon:'🗺️', label:'Gérer les secteurs', screen:'screen-manage-sectors', cfg:true});
-    items.push({icon:'🎨', label:'Paramétrage & données', screen:'screen-parametrage', cfg:true});
-  }
-  if (aAcces('plvadmin'))  items.push({icon:'📦', label:'Gestion PLV', screen:'screen-plv-admin', cfg:true});
-  if (aAcces('creerquiz')) items.push({icon:'🎯', label:'Créer un quiz', screen:'screen-create-quiz', cfg:true});
-  if (aAcces('templates')) items.push({icon:'📋', label:'Templates rapports', screen:'screen-templates', cfg:true});
-  if (aAcces('itoedit'))   items.push({icon:'🔥', label:'Éditer les offres', screen:'screen-edit-offres', cfg:true});
-  if (isManager)           items.push({icon:'📱', label:'Versions & Logs', screen:'screen-device-monitor', cfg:true});
-  // Accessible à tous : chacun règle les tuiles de son accueil
-  items.push({icon:'🧩', label:'Personnaliser l\'accueil', action:'ouvrirPersoTuiles()', cfg:true});
-
-  var overlay = document.createElement('div');
-  overlay.id = 'mgr-nav-overlay';
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;justify-content:flex-start';
-  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
-  var menu = document.createElement('div');
-  menu.style.cssText = 'width:260px;background:var(--white);height:100%;padding:20px 0;box-shadow:4px 0 20px rgba(61,63,71,0.15);animation:slideInLeft 0.2s ease;overflow-y:auto;border-right:1px solid var(--beige)';
-  var entete = currentAccount ? (currentAccount.name || 'Navigation') : 'Navigation';
-  var ligne = function(it, retrait) {
-    var geste = it.action ? it.action : 'goTo(\'' + it.screen + '\')';
-    return '<div onclick="document.getElementById(\'mgr-nav-overlay\').remove();' + geste + '" style="padding:' + (retrait ? '12px 20px 12px 36px' : '14px 20px') + ';cursor:pointer;display:flex;align-items:center;gap:12px;font-size:' + (retrait ? '13px' : '14px') + ';transition:background 0.15s" onmouseover="this.style.background=\'var(--light-gray)\'" onmouseout="this.style.background=\'transparent\'">' +
-      '<span style="font-size:' + (retrait ? '16px' : '18px') + '">' + it.icon + '</span><span>' + it.label + '</span></div>';
-  };
-  var cfg = items.filter(function(it) { return it.cfg; });
-  var html = '<div style="padding:0 20px 16px;border-bottom:1px solid var(--beige);margin-bottom:8px"><div style="font-weight:700;font-size:16px">' + escHtml(entete) + '</div></div>' +
-    items.filter(function(it) { return !it.cfg; }).map(function(it) { return ligne(it, false); }).join('');
-  if (cfg.length) {
-    html += '<div style="border-top:1px solid var(--beige);margin-top:8px"></div>' +
-      '<div onclick="var b=document.getElementById(\'mgr-cfg-list\'),f=document.getElementById(\'mgr-cfg-arrow\');var o=b.style.display===\'none\';b.style.display=o?\'block\':\'none\';f.textContent=o?\'▾\':\'▸\'" style="padding:14px 20px;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:14px;font-weight:600">' +
-      '<span style="font-size:18px">⚙️</span><span style="flex:1">Configuration</span><span id="mgr-cfg-arrow" style="color:var(--dark-gray)">▸</span></div>' +
-      '<div id="mgr-cfg-list" style="display:none;background:var(--light-gray)">' + cfg.map(function(it) { return ligne(it, true); }).join('') + '</div>';
-  }
-  html += '<div style="border-top:1px solid var(--beige);margin-top:8px"></div>' +
-    '<div onclick="document.getElementById(\'mgr-nav-overlay\').remove();showLogoutConfirm()" style="padding:14px 20px;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:14px;color:var(--brand);font-weight:600"><span style="font-size:18px">🚪</span><span>Déconnexion</span></div>';
-  menu.innerHTML = html;
-  overlay.appendChild(menu);
-  document.body.appendChild(overlay);
-}
-
-function toggleMgrMenu() {
-  var menu = document.getElementById('mgr-menu-dropdown');
-  var overlay = document.getElementById('mgr-menu-overlay');
-  if (!menu) return;
-  var isOpen = menu.style.display !== 'none';
-  if (!isOpen) {
-    var isManager = currentAccount && hasRole('manager');
-    var items = [];
-    var mItem = function(icon, label, screen, last) {
-      return '<div onclick="goTo(\''+screen+'\');toggleMgrMenu()" style="padding:14px 18px;cursor:pointer;display:flex;align-items:center;gap:10px'+(last?'':';border-bottom:1px solid var(--light-gray)')+'"><span>'+icon+'</span><span style="font-size:14px;font-weight:500">'+label+'</span></div>';
-    };
-  
-    // Manager-only items
-    if (isManager) {
-      items.push({icon:'&#128202;', label:'Dashboard', screen:'screen-mgr-dashboard'});
-      items.push({icon:'&#128203;', label:'Questionnaires', screen:'screen-mgr-quiz-detail'});
-      items.push({icon:'&#128100;', label:'Gérer les comptes', screen:'screen-manage-accounts'});
-      items.push({icon:'&#127968;', label:'Gérer les enseignes', screen:'screen-manage-enseignes'});
-      items.push({icon:'&#127991;', label:'Gérer les catégories', screen:'screen-manage-categories'});
-      items.push({icon:'&#127968;', label:'Points de vente', screen:'screen-manage-pdv'});
-           items.push({icon:'&#128506;', label:'Gérer les secteurs', screen:'screen-manage-sectors'});
-      items.push({icon:'&#128241;', label:'Versions & Logs', screen:'screen-device-monitor'});
-    }
-    // Dashboard : manager (déjà ajouté ci-dessus), plus admin et référent
-    if (!isManager && (hasRole('admin') || hasRole('referent'))) {
-      items.push({icon:'&#128202;', label:'Dashboard', screen:'screen-mgr-dashboard'});
-    }
-   // Shared items (manager + admin)
-    items.push({icon:'&#128293;', label:'Éditer les offres', screen:'screen-edit-offres'});
-    items.push({icon:'&#128196;', label:'Tous les rapports', screen:'screen-rapports'});
-    items.push({icon:'&#128203;', label:'Templates rapports', screen:'screen-templates'});
-    items.push({icon:'&#127919;', label:'Créer un quiz', screen:'screen-create-quiz'});
-
-    menu.innerHTML = items.map(function(item, i) {
-      return mItem(item.icon, item.label, item.screen, i === items.length - 1);
-    }).join('');
-  }
-  menu.style.display = isOpen ? 'none' : 'block';
-  overlay.style.display = isOpen ? 'none' : 'block';
-}
-
+/* openMgrMenu : retirée (ménage) */
+/* toggleMgrMenu : retirée (ménage) */
 
 // ══════════════════════════════════════════════════════════
 // NAVIGATION WITH TRANSITIONS
@@ -7411,6 +6980,7 @@ function goBack() {
 }
   // Bouton retour Android — intercepter popstate
 window.addEventListener('popstate', function(e) {
+  if (typeof retourIntercepte === 'function' && retourIntercepte()) return;
   if (_screenHistory.length > 1) {
     _popstateHandling = true;
     _isGoingBack = true;
@@ -7748,171 +7318,21 @@ function goToManager() {
 // ══════════════════════════════════════════════════════════
 let historyFilter = 'Tous';
 
-function renderHistory() {
-  const enseignes = ['Tous', ...new Set(db.results.map(r => r.enseigne))];
-  document.getElementById('history-filters').innerHTML = enseignes.map(e =>
-    `<div class="filter-chip ${historyFilter===e?'active':''}" onclick="setHistoryFilter('${e}')">${e}</div>`
-  ).join('');
-
-  const filtered = historyFilter === 'Tous' ? db.results : db.results.filter(r => r.enseigne === historyFilter);
-  const sorted = [...filtered].sort((a,b) => new Date(b.date) - new Date(a.date));
-
-  if (!sorted.length) {
-    document.getElementById('history-list').innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Aucun résultat</div></div>';
-    return;
-  }
-
-  document.getElementById('history-list').innerHTML = sorted.map((r, idx) => {
-    const quiz = db.quizzes.find(q => q.id === r.quizId);
-    const answers = r.answers || [];
-    const hasDetail = answers.length > 0;
-
-    const detailHTML = hasDetail ? (() => {
-      if (quiz && quiz.questions) {
-        // Full detail with question text
-        return quiz.questions.map((q, qi) => {
-          const ua = answers[qi];
-          const corrects = q.correctAnswers && q.correctAnswers.length > 1 ? q.correctAnswers : [q.correct];
-          const selected = Array.isArray(ua) ? ua : (ua !== null && ua !== undefined ? [ua] : []);
-          const ok = corrects.length > 1
-            ? corrects.every(c => selected.includes(c)) && selected.every(s => corrects.includes(s))
-            : selected.includes(corrects[0]);
-          const answerText = selected.map(s => q.options[s] || '—').join(' + ') || '—';
-          return `<div class="answer-row">
-            <span style="flex-shrink:0">${ok?'✅':'❌'}</span>
-            <span style="flex:1;color:var(--dark-gray)">${q.text}</span>
-            <span style="font-weight:600;color:${ok?'var(--success)':'var(--brand)'}">${answerText}</span>
-          </div>`;
-        }).join('');
-      } else {
-        // No local quiz — show raw answers
-        return answers.map((a, qi) => {
-          const selected = Array.isArray(a) ? a : (a !== null && a !== undefined ? [a] : []);
-          return `<div class="answer-row">
-            <span style="flex-shrink:0">Q${qi+1}</span>
-            <span style="flex:1;color:var(--dark-gray)">Question ${qi+1}</span>
-            <span style="font-weight:600">Réponse : ${selected.join(', ')}</span>
-          </div>`;
-        }).join('');
-      }
-    })() : '';
-
-    return `<div class="history-card" onclick="toggleHistory('hcard_${idx}')">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div>
-          <div style="font-size:14px;font-weight:600">${escHtml(r.quizName)}</div>
-          <div style="font-size:12px;color:var(--dark-gray)">${escHtml(r.enseigne)} · ${escHtml(r.magasin)}</div>
-          <div style="font-size:11px;color:var(--dark-gray)">${escHtml(r.cds)} · ${new Date(r.date).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
-        </div>
-        <div style="text-align:center;flex-shrink:0">
-          <span class="score-pill ${r.pct>=70?'high':r.pct>=50?'mid':'low'}">${r.pct}%</span>
-          <div style="font-size:10px;color:var(--dark-gray);margin-top:3px">${r.score}/${r.total}</div>
-          <div style="font-size:10px">${r.synced?'☁️':'⏳'}</div>
-        </div>
-      </div>
-      ${hasDetail ? `<div style="font-size:11px;color:var(--coral);margin-bottom:4px">Appuyez pour voir le détail →</div>
-      <div class="history-answers" id="hcard_${idx}">${detailHTML}</div>` : 
-      '<div style="font-size:11px;color:var(--mid-gray)">Pas de détail disponible pour ce passage</div>'}
-    </div>`;
-  }).join('');
-}
-
+/* renderHistory : retirée (ménage) */
 function toggleHistory(id) {
   const el = document.getElementById(id);
   if (el) el.style.display = el.style.display === 'block' ? 'none' : 'block';
 }
 
-function setHistoryFilter(f) { historyFilter = f; renderHistory(); }
-
+/* setHistoryFilter : retirée (ménage) */
 // ══════════════════════════════════════════════════════════
 // RÉCAP MENSUEL
 // ══════════════════════════════════════════════════════════
 let currentMonth = '';
 
-function renderMonthly() {
-  const months = [...new Set(db.results.map(r => {
-    const d = new Date(r.date);
-    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-  }))].sort().reverse();
-
-  if (!months.length) { currentMonth = ''; }
-  else if (!currentMonth || !months.includes(currentMonth)) currentMonth = months[0];
-
-  document.getElementById('monthly-month-filters').innerHTML = months.map(m => {
-    const [y,mo] = m.split('-');
-    const label = new Date(y, mo-1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
-    return `<div class="filter-chip ${currentMonth===m?'active':''}" onclick="setMonthFilter('${m}')">${label}</div>`;
-  }).join('');
-
-  const filtered = db.results.filter(r => {
-    const d = new Date(r.date);
-    return (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')) === currentMonth;
-  });
-
-  const total = filtered.length;
-  const passed = filtered.filter(r => r.passed).length;
-  document.getElementById('monthly-total').textContent = total;
-  document.getElementById('monthly-rate').textContent = total ? Math.round(passed/total*100)+'%' : '—';
-
-  const buildTable = (groupKey, labelKey) => {
-    const byGroup = {};
-    filtered.forEach(r => {
-      const k = (groupKey === 'cds' ? resolveSecteur(r) : (r[groupKey] || '—'));
-      if (!byGroup[k]) byGroup[k] = {total:0,passed:0};
-      byGroup[k].total++; if (r.passed) byGroup[k].passed++;
-    });
-    const rows = Object.entries(byGroup).sort((a,b)=>b[1].total-a[1].total);
-    if (!rows.length) return '<div style="padding:16px;text-align:center;color:var(--dark-gray);font-size:13px">Aucun résultat</div>';
-    return `<div class="table-head" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;background:var(--charcoal);padding:10px 14px">
-      <span style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.6);letter-spacing:1px;text-transform:uppercase">${labelKey}</span>
-      <span style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.6);letter-spacing:1px;text-transform:uppercase;text-align:center">Quiz</span>
-      <span style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.6);letter-spacing:1px;text-transform:uppercase;text-align:center">Réussis</span>
-      <span style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.6);letter-spacing:1px;text-transform:uppercase;text-align:center">Taux</span>
-    </div>
-    ${rows.map(([k,d],i) => {
-      const t=Math.round(d.passed/d.total*100);
-      const cls=t>=70?'high':t>=50?'mid':'low';
-      return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;padding:12px 14px;border-bottom:1px solid var(--light-gray);background:${i%2===0?'var(--white)':'var(--light-gray)'}">
-        <div style="font-size:13px;font-weight:600">${k}</div>
-        <div style="font-size:13px;text-align:center">${d.total}</div>
-        <div style="font-size:13px;text-align:center">${d.passed}</div>
-        <div style="text-align:center"><span class="score-pill ${cls}">${t}%</span></div>
-      </div>`;
-    }).join('')}
-    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:8px;padding:12px 14px;background:var(--coral)">
-      <div style="font-size:13px;font-weight:700">TOTAL</div>
-      <div style="font-size:13px;font-weight:700;text-align:center">${total}</div>
-      <div style="font-size:13px;font-weight:700;text-align:center">${passed}</div>
-      <div style="font-size:13px;font-weight:700;text-align:center">${total?Math.round(passed/total*100)+'%':'—'}</div>
-    </div>`;
-  };
-
-  document.getElementById('monthly-table-enseigne').innerHTML = buildTable('enseigne','Enseigne');
-  document.getElementById('monthly-table-secteur').innerHTML = buildTable('cds','Secteur');
-}
-
-function setMonthFilter(m) { currentMonth = m; renderMonthly(); }
-
-function exportMonthly() {
-  const filtered = db.results.filter(r => {
-    const d = new Date(r.date);
-    return (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')) === currentMonth;
-  });
-  const h = ['Date','Questionnaire','Gamme','CDS','Secteur','Enseigne','Magasin','Vendeur','Score','Total','%','Réussi','Seuil'];
-  const rows = filtered.map(r => [
-    new Date(r.date).toLocaleDateString('fr-FR'),
-    r.quizName, r.gamme||'', r.cds, resolveSecteur(r), r.enseigne, r.magasin, r.vendeur||'',
-    r.score, r.total, r.pct+'%', r.passed?'OUI':'NON', r.seuil+'%'
-  ]);
-  const csv = [h,...rows].map(r=>r.map(c=>`"${c}"`).join(';')).join('\n');
-  const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href=url;
-  a.download = nomFichier('Recap_' + currentMonth) + '.csv';
-  a.click(); URL.revokeObjectURL(url);
-  showToast('📥 Export mensuel téléchargé');
-}
-
+/* renderMonthly : retirée (ménage) */
+/* setMonthFilter : retirée (ménage) */
+/* exportMonthly : retirée (ménage) */
 // ══════════════════════════════════════════════════════════
 // MANAGER DASHBOARD
 // ══════════════════════════════════════════════════════════
@@ -9131,7 +8551,7 @@ function revokeAccountSessions() {
   var id = (document.getElementById('account-form-id') || {}).value;
   if (!id) { showToast('ℹ️ Enregistre d\'abord le compte'); return; }
   var acc = (db.accounts || []).find(function(a) { return String(a.id) === String(id); });
-  if (!confirm('Déconnecter « ' + (acc ? acc.name : id) + ' » sur tous ses appareils ?\nIl devra ressaisir son mot de passe.')) return;
+  if (!demander('revokeAccountSessions', 'Déconnecter « ' + (acc ? acc.name : id) + ' » sur tous ses appareils ?\nIl devra ressaisir son mot de passe.', revokeAccountSessions, this, arguments)) return;
   if (!navigator.onLine) { showToast('⚠️ Connexion requise'); return; }
   apiPostJSON({ action: 'revokeSessions', accountId: id }).then(function(res) {
     showToast(res && res.status === 'ok' ? '🔒 Sessions révoquées' : '⚠️ Échec : ' + ((res && res.message) || 'réponse vide'));
@@ -9183,7 +8603,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.7.2-beta';
+var APP_VERSION = 'v5.8.0-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -9667,7 +9087,7 @@ function renderSyncCenter() {
     : 'Dernière importation : jamais';
   var _li = document.getElementById('sync-last-import');
   _li.textContent += ' · Mémoire : ' + Math.round(JSON.stringify(db).length/1024) + ' Ko';
-  _li.onclick = function(){ alert('📊 Mémoire locale\n\n' + dbSizeReport()); };
+  _li.onclick = function(){ infoModal('📊 Mémoire locale\n\n' + dbSizeReport()); };
 
   // Update home summary
   const homeSummary = document.getElementById('home-sync-summary');
@@ -9698,7 +9118,7 @@ async function syncCenterSend() {
 
 async function syncCenterReset() {
   if (!isOnline) { showToast('❌ Pas de réseau'); return; }
-  if (!confirm('Effacer toutes les données locales et tout réimporter depuis Google Sheets ?')) return;
+  if (!demander('syncCenterReset', 'Effacer toutes les données locales et tout réimporter depuis Google Sheets ?', syncCenterReset, this, arguments)) return;
   // Clear everything and reimport
   db.results = [];
   db.cdsList = [];
@@ -10041,7 +9461,7 @@ function getInitials(name) {
 
 function getRoleBadgesHTML(roles) {
   if (!roles || !roles.length) return '';
-  var labels = {manager:'Manager', admin:'Admin', cds:'CDS', formateur:'Formateur', referent:'Référent'};
+  var labels = {manager:'Manager', admin:'Admin', cds:P('libCDS'), formateur:'Formateur', referent:'Référent'};
   return roles.map(function(r) {
     return '<span class="role-badge ' + r + '">' + escHtml(roleLabel(r)) + '</span>';
   }).join('');
@@ -10681,12 +10101,12 @@ function roleLabel(r) {
   var p = rolePerso(r);
   if (p) return p.nom;
   if (String(r).indexOf('rp_') === 0) return 'Rôle perso';
-  return ({manager:'Manager', admin:'Admin', cds:'CDS', formateur:'Formateur', referent:'Référent'})[r] || r;
+  return ({manager:'Manager', admin:'Admin', cds:P('libCDS'), formateur:'Formateur', referent:'Référent'})[r] || r;
 }
 var ROLES_BASE = [
   { id:'manager',   nom:'Manager' },
   { id:'admin',     nom:'Admin' },
-  { id:'cds',       nom:'CDS' },
+  { id:'cds',       get nom() { return P('libCDS'); } },
   { id:'formateur', nom:'Formateur' },
   { id:'referent',  nom:'Référent Enseigne' }
 ];
@@ -10994,7 +10414,7 @@ function sauverRole() {
 
 function retablirRoleBase(id) {
   if (!hasRole('manager') || !estRoleBase(id)) return;
-  if (!confirm('Remettre les accès d\'origine du rôle ' + roleLabel(id) + ' ?')) return;
+  if (!demander('retablirRoleBase', 'Remettre les accès d\'origine du rôle ' + roleLabel(id) + ' ?', retablirRoleBase, this, arguments)) return;
   delete db.rolesBaseAcces[id];
   saveDB();
   syncRolesPerso();
@@ -11008,7 +10428,7 @@ function supprimerRole(id) {
   if (!hasRole('manager')) return;
   var r = rolePerso(id); if (!r) return;
   var nb = db.accounts.filter(function(a) { return (a.roles || []).indexOf(id) !== -1; }).length;
-  if (!confirm('Supprimer le rôle « ' + r.nom + ' » ?' + (nb ? '\n\n' + nb + ' compte(s) perdront ses accès.' : ''))) return;
+  if (!demander('supprimerRole', 'Supprimer le rôle « ' + r.nom + ' » ?' + (nb ? '\n\n' + nb + ' compte(s) perdront ses accès.' : ''), supprimerRole, this, arguments)) return;
   db.rolesPerso = db.rolesPerso.filter(function(x) { return x.id !== id; });
   db.accounts.forEach(function(a) { a.roles = (a.roles || []).filter(function(x) { return x !== id; }); });
   saveDB();
@@ -11091,14 +10511,14 @@ function updateHomeUserUI() {
   el.style.display = 'flex';
   document.getElementById('home-user-initials').textContent = getInitials(currentAccount.name);
   document.getElementById('home-user-name').textContent = currentAccount.name.split(' ')[0];
-  var roleLabels = {manager:'Manager', admin:'Admin', cds:'CDS', formateur:'Formateur', referent:'Référent'};
+  var roleLabels = {manager:'Manager', admin:'Admin', cds:P('libCDS'), formateur:'Formateur', referent:'Référent'};
   var roleDisplay = (currentAccount.roles||[]).map(function(r){return roleLabel(r);}).join(' · ');
   var sub = document.getElementById('home-hero-sub');
   if (sub) sub.textContent = currentAccount.name + (roleDisplay ? ' — ' + roleDisplay : '');
 }
 
 function showLogoutConfirm() {
-  if (confirm('Se déconnecter de ' + currentAccount.name + ' ?')) logoutAccount();
+  confirmerModal('Se déconnecter de ' + currentAccount.name + ' ?', logoutAccount, { ok: 'Se déconnecter' });
 }
 
 function logoutAccount() {
@@ -11209,7 +10629,7 @@ function renderManageAccounts() {
     c.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#128100;</div><div class="empty-state-title">Aucun compte</div><div class="empty-state-sub">Ajoutez des comptes pour l\'authentification.<br>Chaque compte peut cumuler plusieurs rôles.</div></div>';
     return;
   }
-  var labels = {manager:'Manager', admin:'Admin', cds:'CDS', formateur:'Formateur', referent:'Référent'};
+  var labels = {manager:'Manager', admin:'Admin', cds:P('libCDS'), formateur:'Formateur', referent:'Référent'};
   c.innerHTML = db.accounts.map(function(acc, i) {
     var roles = (acc.roles||[]).map(function(r){ return '<span class="role-badge '+r+'">'+escHtml(roleLabel(r))+'</span>'; }).join(' ');
     var ensHtml = '';
@@ -11366,7 +10786,7 @@ function saveAccount() {
 }
 
 function deleteAccount(idx) {
-  if (!confirm('Supprimer le compte "' + db.accounts[idx].name + '" ?')) return;
+  if (!demander('deleteAccount', 'Supprimer le compte "' + db.accounts[idx].name + '" ?', deleteAccount, this, arguments)) return;
   db.accounts.splice(idx, 1);
   saveDB();
   syncAccountsToCDSAndFormateurs();
@@ -11809,7 +11229,7 @@ function savePromo() {
 }
 
 function deletePromo(id) {
-  if (!confirm('Supprimer cette promo ?')) return;
+  if (!demander('deletePromo', 'Supprimer cette promo ?', deletePromo, this, arguments)) return;
   db.promos = (db.promos || []).filter(function(p){ return p.id !== id; });
   saveDB();
   autoSyncPromos();
@@ -11861,7 +11281,7 @@ function saveEnseigne() {
   saveDB(); autoSyncEnseignes(); hideEnseigneForm(); renderManageEnseignes(); showToast('✅ Enseigne enregistrée');
 }
 function deleteEnseigne(idx) {
-  if (!confirm('Supprimer "' + db.enseignes[idx] + '" ?')) return;
+  if (!demander('deleteEnseigne', 'Supprimer "' + db.enseignes[idx] + '" ?', deleteEnseigne, this, arguments)) return;
   db.enseignes.splice(idx, 1);
   saveDB(); autoSyncEnseignes(); renderManageEnseignes(); showToast('🗑️ Enseigne supprimée');
 }
@@ -11919,7 +11339,7 @@ function saveCategory() {
   saveDB(); autoSyncCategories(); hideCategoryForm(); renderManageCategories(); showToast('✅ Catégorie enregistrée');
 }
 function deleteCategory(idx) {
-  if (!confirm('Supprimer "' + (db.categories[idx].name || db.categories[idx]) + '" ?')) return;
+  if (!demander('deleteCategory', 'Supprimer "' + (db.categories[idx].name || db.categories[idx]) + '" ?', deleteCategory, this, arguments)) return;
   db.categories.splice(idx, 1);
   saveDB(); autoSyncCategories(); renderManageCategories(); showToast('🗑️ Catégorie supprimée');
 }
@@ -12113,7 +11533,7 @@ function deleteTemplate() {
       showToast('❌ Template hors de tes enseignes'); return;
     }
   }
-  if (!confirm('Supprimer le template "' + tpl.name + '" ?')) return;
+  if (!demander('deleteTemplate', 'Supprimer le template "' + tpl.name + '" ?', deleteTemplate, this, arguments)) return;
    db.templates = (db.templates||[]).filter(function(t){return t.id!==id;});
   saveDB();
   autoSyncTemplates(); // envoie la suppression (et la réessaie tout seul si hors ligne)
@@ -12649,7 +12069,7 @@ function deleteRapport(id) {
   var rapport = (db.rapports || []).find(function(r) { return r.id === id; });
   if (!rapport) return;
   if (!canDeleteRapport(rapport)) { showToast('❌ Suppression non autorisée pour cette enseigne'); return; }
-  if (!confirm('Supprimer le rapport de ' + rapport.magasin + ' du ' + rapport.date + ' ?\nCela supprimera aussi le Google Doc et les photos associées.')) return;
+  if (!demander('deleteRapport', 'Supprimer le rapport de ' + rapport.magasin + ' du ' + rapport.date + ' ?\nCela supprimera aussi le Google Doc et les photos associées.', deleteRapport, this, arguments)) return;
   db.rapports = (db.rapports || []).filter(function(r) { return r.id !== id; });
   if (!db.deletedRapportIds) db.deletedRapportIds = [];
   if (db.deletedRapportIds.indexOf(id) === -1) db.deletedRapportIds.push(id);
@@ -12733,16 +12153,16 @@ function initPlvScreen() {
   plvRefresh(true).then(function() { if (!_plvDirty) plvLoadDraft(); renderPlv(); });
 }
 function plvBack() {
-  if (_plvDirty && !confirm('Commande non enregistrée. Quitter quand même ?')) return;
+  if (_plvDirty && !demander('plvBack', 'Commande non enregistrée. Quitter quand même ?', plvBack, this, arguments)) return;
   _plvDirty = false; goTo('screen-home');
 }
 function plvSetCat(c) {
   if (c === _plvCat) return;
-  if (_plvDirty && !confirm('Modifications non enregistrées sur ' + _plvCat + '. Les abandonner ?')) return;
+  if (_plvDirty && !demander('plvSetCat', 'Modifications non enregistrées sur ' + _plvCat + '. Les abandonner ?', plvSetCat, this, arguments)) return;
   _plvCat = c; _plvSection = ''; plvLoadDraft(); renderPlv();
 }
 function plvSetCds(id) {
-  if (_plvDirty && !confirm('Modifications non enregistrées. Les abandonner ?')) { renderPlv(); return; }
+  if (_plvDirty && !demander('plvSetCds', 'Modifications non enregistrées. Les abandonner ?', plvSetCds, this, arguments, { ok: 'Abandonner', onAnnuler: renderPlv })) { renderPlv(); return; }
   _plvCdsId = String(id); _plvAdrEdit = false; plvLoadDraft(); renderPlv();
 }
 function renderPlv() {
@@ -12820,9 +12240,13 @@ function plvSave() {
   var name = plvCdsName(_plvCdsId);
   var a = plvAdr(_plvCdsId);
   if (!a) {
-    if (confirm('Aucune adresse de livraison pour ' + name + '.\nLa saisir maintenant ?')) { plvEditAdr(); return; }
-  } else if (!confirm('Livraison à :\n' + (a.company || '') + '\n' + (a.address1 || '') + (a.address2 ? ' – ' + a.address2 : '') + '\n' + (a.zip || '') + ' ' + (a.city || '') +
-      '\n\nOK = envoyer la commande\nAnnuler = modifier l\'adresse')) { plvEditAdr(); return; }
+    if (!_confOk.plvSansAdr) {
+      confirmerModal('Aucune adresse de livraison pour ' + name + '.\nLa saisir maintenant ?', plvEditAdr,
+        { ok: 'Saisir l\'adresse', annuler: 'Continuer sans', onAnnuler: function() { _confOk.plvSansAdr = true; try { plvSave(); } finally { delete _confOk.plvSansAdr; } } });
+      return;
+    }
+  } else if (!demander('plvSave', 'Livraison à :\n' + (a.company || '') + '\n' + (a.address1 || '') + (a.address2 ? ' – ' + a.address2 : '') + '\n' + (a.zip || '') + ' ' + (a.city || '') +
+      '', plvSave, this, arguments, { ok: 'Envoyer la commande', annuler: 'Modifier l\'adresse', onAnnuler: plvEditAdr })) return;
   var lines = Object.keys(_plvDraft).filter(function(k) { return _plvDraft[k] > 0; }).map(function(k) { return { code: k, qty: _plvDraft[k] }; });
   var payload = { action: 'savePlvCommande', id: _plvCdsId + '|' + _plvCat, cdsId: _plvCdsId, cdsName: name, categorie: _plvCat, lines: lines };
   var d = plvData(), cat = _plvCat, cds = _plvCdsId;
@@ -13004,7 +12428,7 @@ function plvDelete(key) {
   var msg = 'Supprimer définitivement « ' + p.nom + ' » (' + p.code + ') du catalogue ' + p.categorie + ' ?' +
     (cmds.length ? '\n\n⚠️ ' + cmds.length + ' commande(s) en cours la contiennent : ces lignes ne sortiront plus dans le bon.' : '') +
     '\n\n(Pour la masquer temporairement, utilise plutôt 🚫 Désactiver.)';
-  if (!confirm(msg)) return;
+  if (!demander('plvDelete', msg, plvDelete, this, arguments)) return;
   d.plv = d.plv.filter(function(x) { return x !== p; });
   if (_plvEdit && _plvEdit.key === key) _plvEdit = null;
   plvSaveCatalogue('🗑️ PLV supprimée');
@@ -13187,11 +12611,11 @@ function plvBuildExport(cat, X, styled) {
   var mois = new Date().toLocaleDateString('fr-FR', { month: 'long' });
   X.writeFile(wb, P('plvBonPrefixe') + ' ' + cat + ' ' + mois.charAt(0).toUpperCase() + mois.slice(1) + '.xlsx');
   setTimeout(function() {
-    if (confirm('Fichier ' + cat + ' téléchargé.\nRéinitialiser les commandes ' + cat + ' pour repartir d\'un bon vide ?')) plvReset(cat, true);
+    confirmerModal('Fichier ' + cat + ' téléchargé.\nRéinitialiser les commandes ' + cat + ' pour repartir d\'un bon vide ?', function() { plvReset(cat, true); }, { ok: 'Réinitialiser', annuler: 'Plus tard' });
   }, 800);
 }
 function plvReset(cat, skip) {
-  if (!skip && !confirm('Remettre à zéro toutes les commandes ' + cat + ' ?\n(elles sont archivées dans l\'onglet HistoriquePLV et déduites du stock)')) return;
+  if (!skip && !demander('plvReset', 'Remettre à zéro toutes les commandes ' + cat + ' ?\n(elles sont archivées dans l\'onglet HistoriquePLV et déduites du stock)', plvReset, this, arguments)) return;
   if (!navigator.onLine) { showToast('⚠️ Connexion requise'); return; }
   apiPostJSON({ action: 'resetPlvCommandes', categorie: cat }).then(function(res) {
     if (res && res.status === 'ok' && res.plv) { plvApply(res); renderPlvAdmin(); showToast('♻️ Bon ' + cat + ' remis à zéro'); }
@@ -13266,7 +12690,7 @@ function jeuBandeau() {
 
 function jeuQuitter() {
   if (_jeu && _jeu.i < _jeu.questions.length) {
-    if (!confirm('Quitter maintenant ? La partie est déjà commencée : les questions restantes compteront comme fausses.')) return;
+    if (!demander('jeuQuitter', 'Quitter maintenant ? La partie est déjà commencée : les questions restantes compteront comme fausses.', jeuQuitter, this, arguments)) return;
     jeuFinir();
     return;
   }
@@ -13468,6 +12892,551 @@ function jeuEnvoyer(p) {
     if (z) z.innerHTML = jeuMsg('&#128246;', 'Score gardé sur le téléphone', 'Il sera envoyé à la prochaine ouverture du jeu avec du réseau.') +
       '<button class="btn btn-primary" onclick="renderJeu()">Réessayer</button>';
   });
+}
+</script>
+<!-- ═══════ SIMPLIFICATION · INTERFACE · PROPRIÉTÉ · PRISE EN MAIN (v5.8) ═══════ -->
+<style>@keyframes fmFadeIn{from{opacity:0}to{opacity:1}}</style>
+<script>
+// © 2026 Grégory Vandenbruggen — Tous droits réservés.
+
+// ══════════════════════════════════════════════════════════
+// FENÊTRES DE CONFIRMATION AUX COULEURS DE L'APPLI
+// confirmerModal(message, siOui, { ok, annuler, onAnnuler, danger, info })
+// demander(cle, message, fn, ctx, args, opts) : remplace « if (!confirm(...)) return; »
+// La fonction est relancée telle quelle après « Oui », et passe cette fois.
+// ══════════════════════════════════════════════════════════
+var _confOk = {};
+function confirmerModal(msg, siOui, opts) {
+  opts = opts || {};
+  var ancien = document.getElementById('modal-focus');
+  if (ancien) ancien.remove();
+  var texte = String(msg == null ? '' : msg);
+  var danger = opts.danger !== undefined ? opts.danger : /^(Supprimer|Effacer|Retirer|Remettre à zéro|Déconnecter)/.test(texte);
+  var ok = opts.ok || (opts.info ? 'OK' : danger ? (texte.indexOf('Déconnecter') === 0 ? 'Déconnecter' : texte.indexOf('Remettre') === 0 ? 'Remettre à zéro' : 'Supprimer') : 'Confirmer');
+  var ov = document.createElement('div');
+  ov.id = 'modal-focus';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(20,22,28,0.55);z-index:10050;display:flex;align-items:center;justify-content:center;padding:24px;animation:fmFadeIn 0.15s ease';
+  ov.innerHTML = '<div role="dialog" aria-modal="true" style="background:var(--white);color:var(--charcoal);border-radius:16px;max-width:380px;width:100%;padding:22px 20px 16px;box-shadow:0 18px 48px rgba(0,0,0,0.25)">' +
+    '<div style="font-size:15px;line-height:1.55;white-space:pre-line;margin-bottom:18px">' + escHtml(texte) + '</div>' +
+    '<div style="display:flex;gap:10px;flex-direction:row-reverse">' +
+      '<button class="btn ' + (danger ? '' : 'btn-primary') + '" id="modal-focus-ok" style="flex:1' + (danger ? ';background:var(--brand);color:#fff;border:none' : '') + '">' + escHtml(ok) + '</button>' +
+      (opts.info ? '' : '<button class="btn btn-secondary" id="modal-focus-non" style="flex:1">' + escHtml(opts.annuler || 'Annuler') + '</button>') +
+    '</div></div>';
+  var fermer = function() { if (ov.parentNode) ov.remove(); };
+  ov.addEventListener('click', function(e) { if (e.target === ov) fermer(); });
+  document.body.appendChild(ov);
+  document.getElementById('modal-focus-ok').onclick = function() { fermer(); if (siOui) siOui(); };
+  var non = document.getElementById('modal-focus-non');
+  if (non) non.onclick = function() { fermer(); if (opts.onAnnuler) opts.onAnnuler(); };
+  try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
+  setTimeout(function() { var b = document.getElementById('modal-focus-ok'); if (b) b.focus(); }, 30);
+}
+function demander(cle, msg, fn, ctx, args, opts) {
+  if (_confOk[cle]) { delete _confOk[cle]; return true; }
+  confirmerModal(msg, function() {
+    _confOk[cle] = true;
+    try { fn.apply(ctx, args); } finally { delete _confOk[cle]; }
+  }, opts);
+  return false;
+}
+function infoModal(msg) { confirmerModal(msg, null, { info: true }); }
+
+// ══════════════════════════════════════════════════════════
+// BON CLAVIER SELON LE CHAMP (chiffres, mail, téléphone, code postal)
+// ══════════════════════════════════════════════════════════
+function regler1Clavier(el) {
+  if (!el || el.tagName !== 'INPUT' || el.hasAttribute('inputmode')) return;
+  var t = (el.getAttribute('type') || 'text').toLowerCase();
+  var id = (el.id || '') + ' ' + (el.name || '') + ' ' + (el.placeholder || '');
+  if (t === 'number') el.setAttribute('inputmode', String(el.getAttribute('step') || '').indexOf('.') > -1 ? 'decimal' : 'numeric');
+  else if (t === 'email') { el.setAttribute('inputmode', 'email'); el.setAttribute('autocapitalize', 'none'); el.setAttribute('spellcheck', 'false'); }
+  else if (t === 'tel' || /mob|tel|phone|portable/i.test(id)) el.setAttribute('inputmode', 'tel');
+  else if (/zip|postal/i.test(id)) el.setAttribute('inputmode', 'numeric');
+  else if (/url|lien|http/i.test(id)) el.setAttribute('inputmode', 'url');
+}
+function reglerClaviers(racine) {
+  try { [].forEach.call((racine || document).querySelectorAll('input'), regler1Clavier); } catch (e) {}
+}
+document.addEventListener('focusin', function(e) { regler1Clavier(e.target); }, true);
+
+// ══════════════════════════════════════════════════════════
+// BOUTON RETOUR ANDROID : ferme d'abord une fenêtre ouverte,
+// et demande avant de quitter une partie du jeu en cours
+// ══════════════════════════════════════════════════════════
+// Appelée en tête du gestionnaire « popstate » principal
+function retourIntercepte() {
+  var ouverte = document.getElementById('modal-focus') || document.getElementById('mgr-nav-overlay') || document.getElementById('etat-sync') || document.getElementById('perso-tuiles');
+  var enJeu = typeof _jeu !== 'undefined' && _jeu && _jeu.questions && _jeu.i < _jeu.questions.length && document.querySelector('#screen-jeu.active');
+  if (!ouverte && !enJeu) return false;
+  history.pushState({ screen: (document.querySelector('.screen.active') || {}).id || 'screen-home' }, '', '');
+  if (ouverte) ouverte.remove(); else jeuQuitter();
+  return true;
+}
+
+// ══════════════════════════════════════════════════════════
+// SYNCHRO INVISIBLE : pastille d'état. Le centre de synchro reste au manager.
+// ══════════════════════════════════════════════════════════
+ACCES_TOUS = ACCES_TOUS.filter(function(k) { return k !== 'sync'; });
+if (ACCES_ROLES.admin.indexOf('sync') === -1) ACCES_ROLES.admin.push('sync');
+
+function envoyerMaintenant() {
+  if (!navigator.onLine) { showToast('📵 Hors ligne — l\'envoi partira au retour du réseau'); return; }
+  showToast('🔄 Envoi en cours…');
+  try { if (typeof runAutoSync === 'function') runAutoSync(true); } catch (e) {}
+  try { if (typeof flushPendingOps === 'function') flushPendingOps(); } catch (e) {}
+  try { if (typeof flushApiQueue === 'function') flushApiQueue(); } catch (e) {}
+  try { if (typeof flushAnomalies === 'function') flushAnomalies(); } catch (e) {}
+  setTimeout(function() { updateNetworkUI(); if (document.querySelector('#screen-home.active')) renderHome(); fermerEtatSync(); }, 2500);
+}
+function fermerEtatSync() { var o = document.getElementById('etat-sync'); if (o) o.remove(); }
+function ouvrirEtatSync() {
+  if (aAcces('sync')) { goTo('screen-sync-center'); return; }
+  fermerEtatSync();
+  var p = getPendingSummary(), enLigne = navigator.onLine;
+  var detail = [];
+  if (p.resultats) detail.push(p.resultats + ' quiz');
+  if (p.rapports) detail.push(p.rapports + ' rapport' + (p.rapports > 1 ? 's' : ''));
+  if (p.modifs) detail.push(p.modifs + ' modification' + (p.modifs > 1 ? 's' : ''));
+  if (p.actions) detail.push(p.actions + ' action' + (p.actions > 1 ? 's' : ''));
+  if (p.anomalies) detail.push(p.anomalies + ' anomalie' + (p.anomalies > 1 ? 's' : ''));
+  var ic = !enLigne ? '📵' : p.total ? '⏳' : '✅';
+  var titre = !enLigne ? 'Hors ligne' : p.total ? p.total + ' élément' + (p.total > 1 ? 's' : '') + ' en attente' : 'Tout est envoyé';
+  var sous = !enLigne ? 'Vous pouvez continuer à travailler : tout partira automatiquement au retour du réseau.'
+    : p.total ? 'Envoi automatique en cours (' + detail.join(' · ') + ').' : getLastSyncLabel() + '.';
+  var ov = document.createElement('div');
+  ov.id = 'etat-sync';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  ov.onclick = function(e) { if (e.target === ov) fermerEtatSync(); };
+  ov.innerHTML = '<div style="background:var(--white);border-radius:18px 18px 0 0;width:100%;max-width:520px;padding:22px 20px 24px">' +
+    '<div style="display:flex;gap:12px;align-items:center;margin-bottom:10px"><span style="font-size:30px">' + ic + '</span>' +
+    '<div style="font-size:16px;font-weight:700">' + escHtml(titre) + '</div></div>' +
+    '<div style="font-size:13px;color:var(--dark-gray);line-height:1.55;margin-bottom:16px">' + escHtml(sous) + '</div>' +
+    (p.total && enLigne ? '<button class="btn btn-primary mb-8" onclick="envoyerMaintenant()">📤 Envoyer maintenant</button>' : '') +
+    '<button class="btn btn-secondary" onclick="fermerEtatSync()">Fermer</button></div>';
+  document.body.appendChild(ov);
+}
+
+// ══════════════════════════════════════════════════════════
+// CARTE « À FAIRE » EN TÊTE DE L'ACCUEIL
+// ══════════════════════════════════════════════════════════
+function cleVu(k) { return PFX + 'vu_' + k + '_' + (currentAccount ? currentAccount.id : ''); }
+function marquerVu(k, v) { try { localStorage.setItem(cleVu(k), String(v)); } catch (e) {} }
+function lireVu(k) { try { return localStorage.getItem(cleVu(k)) || ''; } catch (e) { return ''; } }
+function empreinte(o) {
+  var s = '';
+  try { s = JSON.stringify(o || ''); } catch (e) {}
+  var h = 0;
+  for (var i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+  return String(h);
+}
+function derniereFormation() {
+  return (db.formations || []).reduce(function(m, f) { var t = String(f.updatedAt || f.createdAt || ''); return t > m ? t : m; }, '');
+}
+function aFaireListe() {
+  var l = [];
+  if (!currentAccount) return l;
+  // 1. Jeu de la semaine
+  if (aAcces('jeu') && typeof jeuLocal === 'function') {
+    var et = jeuLocal('etat'), joue = et && et.semaine === jeuLundi() && et.moi && et.moi.joue;
+    if (!joue) l.push({ ic: '🎯', t: 'Jeu de la semaine', s: '10 questions, 15 s chacune', go: "goTo('screen-jeu')", fort: true });
+  }
+  // 2. Envois en attente
+  var p = getPendingSummary();
+  if (p.total) l.push({ ic: '⏳', t: p.total + ' envoi' + (p.total > 1 ? 's' : '') + ' en attente', s: navigator.onLine ? 'Envoi automatique en cours' : 'Partira au retour du réseau', go: 'ouvrirEtatSync()' });
+  // 3. Tableurs à rendre (7 jours ou en retard)
+  if (aAcces('tableurs')) {
+    tableursVisibles().forEach(function(t) {
+      var j = joursAvant(t.echeance);
+      if (j === null || j > 7) return;
+      l.push({ ic: '📑', t: t.titre, s: j < 0 ? 'Échéance dépassée' : j === 0 ? 'À rendre aujourd\'hui' : 'À rendre dans ' + j + ' jour' + (j > 1 ? 's' : ''), go: "goTo('screen-tableurs')", fort: j <= 1 });
+    });
+  }
+  // 4. Nouvelles formations / communications depuis la dernière visite
+  if (aAcces('formation')) {
+    var df = derniereFormation(), vf = lireVu('formations');
+    if (df && !vf) marquerVu('formations', df);           // premier passage : rien de « nouveau »
+    else if (df && df > vf) l.push({ ic: '🎓', t: 'Nouvelle formation', s: 'Un document a été ajouté ou mis à jour', go: "goTo('screen-formations')" });
+  }
+  if (aAcces('ito') && typeof ITO_ENSEIGNES !== 'undefined' && ITO_ENSEIGNES.length) {
+    var eo = empreinte(db.offresITO), vo = lireVu('offres');
+    if (!vo) marquerVu('offres', eo);
+    else if (eo !== vo) l.push({ ic: '🏷️', t: 'Nouvelles ' + P('libOffres').toLowerCase(), s: 'Les offres ont été mises à jour', go: "goTo('screen-offres-ito')" });
+  }
+  return l;
+}
+function renderAFaire() {
+  var wrap = document.getElementById('pending-banner-wrap');
+  if (!wrap || !currentAccount) return;
+  var l = aFaireListe();
+  if (!l.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '<div class="fade-up" style="background:var(--white);border:1px solid var(--beige);border-radius:14px;padding:6px 0;margin-bottom:16px;box-shadow:var(--shadow)">' +
+    '<div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--dark-gray);padding:8px 16px 4px">À faire</div>' +
+    l.map(function(x, i) {
+      return '<div onclick="' + x.go + '" style="display:flex;align-items:center;gap:12px;padding:10px 16px;cursor:pointer' + (i ? ';border-top:1px solid var(--light-gray)' : '') + '">' +
+        '<span style="font-size:22px;flex-shrink:0">' + x.ic + '</span>' +
+        '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:' + (x.fort ? '700;color:var(--brand)' : '600') + '">' + escHtml(x.t) + '</div>' +
+        '<div style="font-size:12px;color:var(--dark-gray);margin-top:1px">' + escHtml(x.s) + '</div></div>' +
+        '<span style="color:var(--dark-gray);font-size:16px">›</span></div>';
+    }).join('') + '</div>';
+}
+
+// ══════════════════════════════════════════════════════════
+// UN SEUL TABLEAU DE BORD
+// Réseau (manager, admin, référent) ou personnel (CDS) selon le compte
+// ══════════════════════════════════════════════════════════
+function ouvrirTableauDeBord() {
+  if (aAcces('dashmgr')) goTo('screen-mgr-dashboard');
+  else if (aAcces('dashcds')) goToCDSDashboardDirect();
+}
+TUILES.forEach(function(t) {
+  if (t.k === 'dashmgr') t.lbl = 'Tableau de bord';
+  if (t.k === 'dashcds') t.lbl = 'Mon tableau de bord';
+});
+
+// ══════════════════════════════════════════════════════════
+// ÉCRAN ADMINISTRATION EN 4 BLOCS (remplace la liste « Configuration »)
+// ══════════════════════════════════════════════════════════
+function blocsAdmin() {
+  var mgr = hasRole('manager');
+  var it = function(cond, ic, lbl, go, sous) { return cond ? { ic: ic, lbl: lbl, go: go, s: sous || '' } : null; };
+  var ecran = function(id) { return "goTo('" + id + "')"; };
+  return [
+    { titre: 'Équipe', ic: '👥', items: [
+      it(mgr, '👤', 'Comptes', ecran('screen-manage-accounts'), 'Créer, modifier, rôles de chacun'),
+      it(mgr, '🛡️', 'Rôles et accès', ecran('screen-manage-roles'), 'Ce que voit chaque rôle'),
+      it(mgr, '🗺️', 'Secteurs', ecran('screen-manage-sectors'))
+    ] },
+    { titre: 'Listes', ic: '📋', items: [
+      it(mgr, '🏢', 'Enseignes', ecran('screen-manage-enseignes')),
+      it(mgr, '📍', 'Points de vente', ecran('screen-manage-pdv'), 'Magasins, import Excel'),
+      it(mgr, '🗂️', 'Catégories de promos', ecran('screen-manage-categories')),
+      it(mgr, '🎨', 'Paramétrage & données', ecran('screen-parametrage'), 'Nom, logo, couleur, modules, imports')
+    ] },
+    { titre: 'Contenus', ic: '📝', items: [
+      it(aAcces('questionnaires'), '📝', 'Questionnaires', ecran('screen-manager')),
+      it(aAcces('creerquiz'), '🎯', 'Créer un quiz', ecran('screen-create-quiz')),
+      it(aAcces('templates'), '📋', 'Modèles de rapports', ecran('screen-templates')),
+      it(aAcces('itoedit'), '🔥', 'Éditer les ' + P('libOffres').toLowerCase(), ecran('screen-edit-offres')),
+      it(mgr && aAcces('formation'), '🎓', 'Formations', ecran('screen-formations')),
+      it(aAcces('plvadmin'), '📦', 'Gestion PLV', ecran('screen-plv-admin')),
+      it(mgr && aAcces('tableurs'), '📑', 'Tableurs', ecran('screen-tableurs'))
+    ] },
+    { titre: 'Suivi', ic: '📈', items: [
+      it(aAcces('dashmgr'), '📊', 'Tableau de bord', ecran('screen-mgr-dashboard')),
+      it(aAcces('dashmgr'), '📄', 'Tous les rapports', ecran('screen-rapports')),
+      it(aAcces('jeustats'), '🎯', 'Statistiques du jeu', 'ouvrirStatsJeu()', 'Questions les plus ratées'),
+      it(aAcces('sync'), '🔄', 'Synchronisation', ecran('screen-sync-center')),
+      it(mgr, '📱', 'Versions & logs', ecran('screen-device-monitor')),
+      it(mgr, '🚀', 'Assistant de démarrage', 'ouvrirAssistant()', 'Mise en route d\'un nouveau client')
+    ] }
+  ].map(function(b) { b.items = b.items.filter(Boolean); return b; }).filter(function(b) { return b.items.length; });
+}
+function ouvrirStatsJeu() { window._jeuOuvrirStats = 'semaine'; goTo('screen-jeu'); }
+function renderAdmin() {
+  var z = document.getElementById('admin-zone');
+  if (!z) return;
+  var blocs = blocsAdmin();
+  if (!blocs.length) { z.innerHTML = '<div class="empty-state"><div class="empty-state-title">Aucun réglage pour votre compte</div></div>'; return; }
+  var h = hasRole('manager') ? carteAssistant(true) : '';
+  blocs.forEach(function(b) {
+    h += '<div class="section-label" style="margin-top:6px">' + b.ic + ' ' + escHtml(b.titre) + '</div>' +
+      '<div style="background:var(--white);border:1px solid var(--beige);border-radius:14px;overflow:hidden;margin-bottom:14px">' +
+      b.items.map(function(x, i) {
+        return '<div onclick="' + x.go + '" style="display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer' + (i ? ';border-top:1px solid var(--light-gray)' : '') + '">' +
+          '<span style="font-size:20px;width:26px;text-align:center;flex-shrink:0">' + x.ic + '</span>' +
+          '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">' + escHtml(x.lbl) + '</div>' +
+          (x.s ? '<div style="font-size:12px;color:var(--dark-gray);margin-top:1px">' + escHtml(x.s) + '</div>' : '') + '</div>' +
+          '<span style="color:var(--dark-gray)">›</span></div>';
+      }).join('') + '</div>';
+  });
+  z.innerHTML = h;
+}
+
+// ══════════════════════════════════════════════════════════
+// MENU ☰ ALLÉGÉ : l'usage courant, puis Administration
+// ══════════════════════════════════════════════════════════
+function openMgrMenu() {
+  var existing = document.getElementById('mgr-nav-overlay');
+  if (existing) { existing.remove(); return; }
+  var items = [];
+  items.push({ icon: '🏠', label: 'Accueil', go: "goTo('screen-home')" });
+  if (aAcces('dashmgr') || aAcces('dashcds')) items.push({ icon: '📊', label: 'Tableau de bord', go: 'ouvrirTableauDeBord()' });
+  if (aAcces('dashmgr'))  items.push({ icon: '📄', label: 'Tous les rapports', go: "goTo('screen-rapports')" });
+  if (aAcces('plv'))      items.push({ icon: '🛒', label: 'Commande PLV', go: "goTo('screen-plv')" });
+  if (aAcces('anomalie')) items.push({ icon: '🚩', label: 'Report anomalie', go: "goTo('screen-anomalie')" });
+  if (aAcces('outils') && liensVisibles().length) items.push({ icon: '🔗', label: 'Mes outils', go: "goTo('screen-outils')" });
+  if (aAcces('tableurs') && tableursVisibles().length) items.push({ icon: '📑', label: 'Tableurs', go: "goTo('screen-tableurs')" });
+  var bas = [];
+  if (blocsAdmin().length) bas.push({ icon: '⚙️', label: 'Administration', go: "goTo('screen-admin')", fort: true });
+  bas.push({ icon: '🧩', label: 'Personnaliser l\'accueil', go: 'ouvrirPersoTuiles()' });
+  bas.push({ icon: 'ℹ️', label: 'À propos', go: "goTo('screen-apropos')" });
+
+  var overlay = document.createElement('div');
+  overlay.id = 'mgr-nav-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;justify-content:flex-start';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  var menu = document.createElement('div');
+  menu.style.cssText = 'width:270px;background:var(--white);height:100%;padding:20px 0;box-shadow:4px 0 20px rgba(61,63,71,0.15);animation:slideInLeft 0.2s ease;overflow-y:auto;border-right:1px solid var(--beige);display:flex;flex-direction:column';
+  var ligne = function(it) {
+    return '<div onclick="document.getElementById(\'mgr-nav-overlay\').remove();' + it.go + '" style="padding:14px 20px;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:14px' + (it.fort ? ';font-weight:600' : '') + '">' +
+      '<span style="font-size:18px;width:22px;text-align:center">' + it.icon + '</span><span>' + escHtml(it.label) + '</span></div>';
+  };
+  var entete = currentAccount ? (currentAccount.name || '') : '';
+  menu.innerHTML = '<div style="padding:0 20px 16px;border-bottom:1px solid var(--beige);margin-bottom:8px"><div style="font-weight:700;font-size:16px">' + escHtml(entete) + '</div>' +
+      '<div style="font-size:12px;color:var(--dark-gray);margin-top:2px">' + escHtml((currentAccount && (currentAccount.roles || []).map(roleLabel).join(' · ')) || '') + '</div></div>' +
+    items.map(ligne).join('') +
+    '<div style="border-top:1px solid var(--beige);margin:8px 0"></div>' + bas.map(ligne).join('') +
+    '<div style="border-top:1px solid var(--beige);margin-top:8px"></div>' +
+    '<div onclick="document.getElementById(\'mgr-nav-overlay\').remove();showLogoutConfirm()" style="padding:14px 20px;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:14px;color:var(--brand);font-weight:600"><span style="font-size:18px;width:22px;text-align:center">🚪</span><span>Déconnexion</span></div>' +
+    '<div style="flex:1"></div><div class="gv-copy" style="padding:16px 20px 4px;font-size:10px;color:var(--dark-gray);opacity:0.7"></div>';
+  overlay.appendChild(menu);
+  document.body.appendChild(overlay);
+  poserCopyright();
+}
+
+// ══════════════════════════════════════════════════════════
+// PROPRIÉTÉ INTELLECTUELLE — ligne fixe, non modifiable par la personnalisation
+// ══════════════════════════════════════════════════════════
+var GV_COPY = '© 2026 G.V. — Tous droits réservés';
+function poserCopyright() {
+  [].forEach.call(document.querySelectorAll('.gv-copy'), function(el) { el.textContent = GV_COPY; });
+}
+function renderAPropos() {
+  var z = document.getElementById('apropos-zone');
+  if (!z) return;
+  var m = marqueCourante();
+  z.innerHTML = '<div style="text-align:center;padding:18px 0 8px">' +
+      '<img src="' + escHtml(m.logo || 'icon-192.png') + '" alt="" style="width:72px;height:72px;object-fit:contain;border-radius:16px;background:#fff">' +
+      '<div style="font-size:20px;font-weight:700;margin-top:10px">' + escHtml(m.nom) + '</div>' +
+      '<div style="font-size:12px;color:var(--dark-gray);margin-top:4px">Version ' + escHtml(typeof APP_VERSION !== 'undefined' ? APP_VERSION : '') + '</div></div>' +
+    '<div class="section-label">Mentions légales</div>' +
+    '<div style="background:var(--white);border:1px solid var(--beige);border-radius:14px;padding:16px;font-size:13px;line-height:1.6;color:var(--charcoal)">' +
+      '<div style="font-weight:700;margin-bottom:6px" class="gv-copy"></div>' +
+      'Cette application — son code source, sa conception, son architecture, ses écrans et ses textes — est une œuvre protégée par le Code de la propriété intellectuelle.<br><br>' +
+      'Toute reproduction, représentation, modification, adaptation, diffusion ou exploitation, totale ou partielle, par quelque procédé que ce soit, sans l\'autorisation écrite préalable de son auteur, est interdite et constitue une contrefaçon (articles L122-4 et L335-2 du Code de la propriété intellectuelle).<br><br>' +
+      'Les données saisies (résultats, rapports, comptes, magasins) restent la propriété de l\'organisation qui utilise l\'application. Les marques et logos affichés appartiennent à leurs titulaires respectifs.' +
+    '</div>';
+  poserCopyright();
+}
+
+// ══════════════════════════════════════════════════════════
+// PRISE EN MAIN D'UN NOUVEAU CLIENT
+// ══════════════════════════════════════════════════════════
+var MDP_DEFAUT = 'ChangezMoi2026';
+
+// 1. Mot de passe par défaut : changement obligatoire avant d'aller plus loin
+function exigerNouveauMdp() {
+  if (document.getElementById('mdp-oblig')) return;
+  var ov = document.createElement('div');
+  ov.id = 'mdp-oblig';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(20,22,28,0.7);z-index:10040;display:flex;align-items:center;justify-content:center;padding:24px';
+  ov.innerHTML = '<div style="background:var(--white);border-radius:16px;max-width:380px;width:100%;padding:22px 20px">' +
+    '<div style="font-size:28px;text-align:center">🔐</div>' +
+    '<div style="font-size:16px;font-weight:700;text-align:center;margin:6px 0 8px">Choisissez votre mot de passe</div>' +
+    '<div style="font-size:13px;color:var(--dark-gray);line-height:1.5;margin-bottom:14px;text-align:center">Vous utilisez le mot de passe fourni à l\'installation. Remplacez-le avant de continuer : il protège tous les comptes de l\'application.</div>' +
+    '<input class="form-input mb-8" id="mdp-o1" type="password" autocomplete="new-password" placeholder="Nouveau mot de passe (8 caractères minimum)">' +
+    '<input class="form-input mb-12" id="mdp-o2" type="password" autocomplete="new-password" placeholder="Confirmez">' +
+    '<div id="mdp-o-err" style="display:none;font-size:12px;color:var(--brand);margin-bottom:10px"></div>' +
+    '<button class="btn btn-primary" onclick="validerMdpOblig()">Enregistrer</button></div>';
+  document.body.appendChild(ov);
+}
+function validerMdpOblig() {
+  var a = document.getElementById('mdp-o1').value, b = document.getElementById('mdp-o2').value;
+  var err = document.getElementById('mdp-o-err');
+  var dire = function(t) { err.textContent = t; err.style.display = 'block'; };
+  if (a.length < 8) return dire('8 caractères minimum.');
+  if (a === MDP_DEFAUT) return dire('Choisissez un mot de passe différent de celui fourni.');
+  if (a !== b) return dire('Les deux saisies ne correspondent pas.');
+  if (!navigator.onLine) return dire('Connexion nécessaire pour enregistrer le mot de passe.');
+  ensureDbStructure();
+  var acc = db.accounts.find(function(x) { return x.id === currentAccount.id; });
+  if (!acc) return dire('Compte introuvable : réimportez les données puis réessayez.');
+  acc.password = a;
+  saveDB();
+  autoSyncAccounts();
+  try { localStorage.removeItem(PFX + 'mdp_a_changer'); } catch (e) {}
+  var ov = document.getElementById('mdp-oblig'); if (ov) ov.remove();
+  try { hashPwdLocal(a).then(function(h) { saveOfflineVerifier(currentAccount.username, h, currentAccount); }); } catch (e) {}
+  showToast('✅ Mot de passe enregistré');
+  if (hasRole('manager') && !assistantMasque()) setTimeout(ouvrirAssistant, 600);
+}
+function verifierMdpOblig() {
+  var v = ''; try { v = localStorage.getItem(PFX + 'mdp_a_changer') || ''; } catch (e) {}
+  if (v && currentAccount && v === currentAccount.id) exigerNouveauMdp();
+}
+
+// 2. Assistant de démarrage : chaque étape renvoie vers l'écran existant
+function etapesAssistant() {
+  ensureDbStructure();
+  var m = marqueCourante();
+  var nbPdv = (db.pdvList || []).length;
+  var nbCompte = (db.accounts || []).filter(function(a) { return a.id !== currentAccount.id; }).length;
+  var nbContenu = (db.quizzes || []).length + (db.formations || []).length + (db.templates || []).length;
+  return [
+    { ic: '🎨', t: 'Identité', s: 'Nom, logo, couleur de l\'application', ok: !!(db.parametres && (db.parametres.nom || db.parametres.logo || db.parametres.couleur)), go: 'ouvrirEditionMarque()' },
+    { ic: '🧩', t: 'Modules', s: 'Gardez seulement ce que vous utilisez', ok: !!lireVu('assist_modules'), go: "marquerVu('assist_modules',1);ouvrirEditionMarque()" },
+    { ic: '🗺️', t: 'Secteurs', s: 'Les zones de votre équipe terrain', ok: !!(db.sectors && db.sectors.length), go: "goTo('screen-manage-sectors')" },
+    { ic: '👥', t: 'Comptes', s: 'Créez les comptes de votre équipe', ok: nbCompte > 0, go: "goTo('screen-manage-accounts')" },
+    { ic: '🏢', t: 'Enseignes et magasins', s: 'Import Excel possible', ok: (db.enseignes || []).length > 0 && nbPdv > 0, go: "goTo('screen-manage-pdv')" },
+    { ic: '📝', t: 'Premiers contenus', s: 'Un quiz, une formation ou un modèle de rapport', ok: nbContenu > 0, go: "goTo('screen-admin')" },
+    { ic: '🔌', t: 'Tester la connexion', s: 'Vérifie le serveur et la session', ok: !!lireVu('assist_test'), go: 'testerConnexion()' }
+  ];
+}
+function assistantMasque() { return !!lireVu('assist_masque'); }
+function carteAssistant(dansAdmin) {
+  if (!currentAccount || !hasRole('manager')) return '';
+  var e = etapesAssistant(), faites = e.filter(function(x) { return x.ok; }).length;
+  if (faites === e.length || (!dansAdmin && assistantMasque())) return '';
+  var pct = Math.round(faites / e.length * 100);
+  return '<div class="fade-up" onclick="ouvrirAssistant()" style="cursor:pointer;background:linear-gradient(135deg,var(--brand),#7A1020);color:#fff;border-radius:14px;padding:14px 16px;margin-bottom:16px">' +
+    '<div style="display:flex;align-items:center;gap:12px"><span style="font-size:26px">🚀</span><div style="flex:1">' +
+    '<div style="font-weight:700;font-size:14px">Mise en route : ' + faites + '/' + e.length + ' étapes</div>' +
+    '<div style="font-size:12px;opacity:0.85">Touchez pour continuer la configuration</div></div><span style="opacity:0.8">›</span></div>' +
+    '<div style="height:5px;background:rgba(255,255,255,0.25);border-radius:3px;margin-top:10px"><div style="height:5px;width:' + pct + '%;background:#fff;border-radius:3px"></div></div></div>';
+}
+function ouvrirAssistant() {
+  var e = etapesAssistant();
+  var h = '<div style="font-size:16px;font-weight:700;margin-bottom:4px">🚀 Assistant de démarrage</div>' +
+    '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:14px;line-height:1.5">Suivez les étapes dans l\'ordre. Chacune ouvre l\'écran où elle se règle ; revenez ici quand c\'est fait.</div>';
+  e.forEach(function(x, i) {
+    h += '<div onclick="fermerModalParam();' + x.go + '" style="display:flex;align-items:center;gap:12px;padding:11px 0;cursor:pointer;border-top:1px solid var(--light-gray)">' +
+      '<span style="width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;' +
+        (x.ok ? 'background:var(--success);color:#fff">✓' : 'background:var(--light-gray);color:var(--charcoal)">' + (i + 1)) + '</span>' +
+      '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600' + (x.ok ? ';opacity:0.6' : '') + '">' + x.ic + ' ' + escHtml(x.t) + '</div>' +
+      '<div style="font-size:12px;color:var(--dark-gray)">' + escHtml(x.s) + '</div></div><span style="color:var(--dark-gray)">›</span></div>';
+  });
+  h += '<button class="btn btn-secondary" style="margin-top:14px" onclick="fermerModalParam()">Fermer</button>' +
+    (assistantMasque() ? '' : '<button class="btn btn-ghost" style="margin-top:4px;font-size:12px" onclick="marquerVu(\'assist_masque\',1);fermerModalParam();renderHome()">Ne plus l\'afficher sur l\'accueil</button>');
+  ouvrirModalParam(h);
+}
+// L'assistant s'affiche d'office seulement sur une installation neuve
+function installationNeuve() {
+  return (db.accounts || []).length <= 2 && !(db.pdvList || []).length;
+}
+
+// 3. Tester la connexion au serveur
+function testerConnexion() {
+  var lignes = [];
+  var montrer = function(fin) {
+    var h = '<div style="font-size:16px;font-weight:700;margin-bottom:12px">🔌 Test de connexion</div>' +
+      lignes.map(function(l) {
+        return '<div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--light-gray);font-size:13px;line-height:1.45">' +
+          '<span style="flex-shrink:0">' + (l.ok === true ? '✅' : l.ok === false ? '❌' : '⏳') + '</span><div><b>' + escHtml(l.t) + '</b>' +
+          (l.s ? '<div style="color:var(--dark-gray);font-size:12px">' + escHtml(l.s) + '</div>' : '') + '</div></div>';
+      }).join('') +
+      (fin ? '<button class="btn btn-secondary" style="margin-top:14px" onclick="fermerModalParam()">Fermer</button>' : '');
+    ouvrirModalParam(h);
+  };
+  var url = String(typeof WEBHOOK_URL !== 'undefined' ? WEBHOOK_URL : '');
+  var urlOk = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url);
+  lignes.push({ t: 'Adresse du serveur', ok: urlOk, s: urlOk ? '…' + url.slice(-28) : (url ? 'Adresse inattendue : ' + url : 'Aucune adresse dans APP_CONFIG.webhook') });
+  lignes.push({ t: 'Réseau', ok: navigator.onLine, s: navigator.onLine ? 'Appareil connecté' : 'Appareil hors ligne' });
+  if (!urlOk || !navigator.onLine) { montrer(true); return; }
+  var l3 = { t: 'Réponse du serveur', ok: null, s: 'Interrogation…' };
+  lignes.push(l3); montrer(false);
+  var t0 = Date.now();
+  fetch(url, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(withToken({ action: 'read', what: 'getJeu' })) })
+    .then(function(r) { return r.text(); })
+    .then(function(t) {
+      var ms = Date.now() - t0, res = null;
+      try { res = JSON.parse(t); } catch (e) {}
+      if (!res) { l3.ok = false; l3.s = 'Réponse illisible : le script n\'est pas déployé en « Application Web », ou l\'accès n\'est pas « Tout le monde ».'; montrer(true); return; }
+      l3.ok = true; l3.s = 'Réponse en ' + (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+      var s = { t: 'Session', ok: res.code !== 401, s: res.code === 401 ? 'Session expirée : déconnectez-vous puis reconnectez-vous.' : 'Session valide' };
+      lignes.push(s);
+      lignes.push({ t: 'Version du script', ok: res.status === 'ok', s: res.status === 'ok' ? 'À jour (jeu et statistiques disponibles)' : 'Ancienne version : pensez à « Nouvelle version » dans Gérer les déploiements' });
+      if (s.ok) marquerVu('assist_test', 1);
+      montrer(true);
+    })
+    .catch(function(err) {
+      l3.ok = false; l3.s = 'Pas de réponse (' + (err && err.message || 'erreur réseau') + '). Vérifiez le déploiement et l\'accès « Tout le monde ».';
+      montrer(true);
+    });
+}
+
+// ══════════════════════════════════════════════════════════
+// ÉCRANS CRÉÉS ICI + BRANCHEMENTS
+// ══════════════════════════════════════════════════════════
+(function() {
+  var creer = function(id, titre, zone) {
+    var e = document.createElement('div');
+    e.className = 'screen';
+    e.id = id;
+    e.innerHTML = '<div class="topbar"><button class="topbar-back" onclick="goTo(\'screen-home\')">←</button>' +
+      '<span class="topbar-title">' + titre + '</span></div><div class="content" id="' + zone + '"></div>';
+    document.body.appendChild(e);
+  };
+  creer('screen-admin', 'Administration', 'admin-zone');
+  creer('screen-apropos', 'À propos', 'apropos-zone');
+
+  var _oseAvant = onScreenEnter;
+  onScreenEnter = function(id) {
+    if (id === 'screen-jeu' && window._jeuOuvrirStats) {
+      var p = window._jeuOuvrirStats; window._jeuOuvrirStats = null;
+      jeuStats(p);
+    } else {
+      _oseAvant(id);
+    }
+    if (id === 'screen-admin') renderAdmin();
+    if (id === 'screen-apropos') renderAPropos();
+    if (id === 'screen-formations') marquerVu('formations', derniereFormation());
+    if (id === 'screen-offres-ito') marquerVu('offres', empreinte(db.offresITO));
+    if (id === 'screen-parametrage') ajouterBoutonTest();
+    if (id === 'screen-mgr-dashboard') ajouterLienDetail();
+    if (id === 'screen-login') poserCopyright();
+    var ec = document.getElementById(id);
+    if (ec) setTimeout(function() { reglerClaviers(ec); }, 60);
+  };
+
+  var _rhAvant = renderHome;
+  renderHome = function() {
+    _rhAvant();
+    if (!currentAccount) return;
+    renderAFaire();
+    // Assistant : en tête de l'accueil du manager sur une installation neuve
+    var w = document.getElementById('pending-banner-wrap');
+    if (w && hasRole('manager') && installationNeuve()) w.insertAdjacentHTML('afterbegin', carteAssistant(false));
+    verifierMdpOblig();
+  };
+
+  // Le bandeau du jeu ne s'affiche qu'une fois la partie jouée (avant : il est dans « À faire »)
+  var _jbAvant = jeuBandeau;
+  jeuBandeau = function() {
+    var et = jeuLocal('etat');
+    if (et && et.semaine === jeuLundi() && et.moi && et.moi.joue) _jbAvant();
+  };
+
+  // Mot de passe par défaut repéré à la connexion
+  var _slAvant = submitLogin;
+  submitLogin = function() {
+    var pw = ((document.getElementById('login-password') || {}).value || '').trim();
+    window._mdpSaisi = pw === MDP_DEFAUT;
+    _slAvant();
+  };
+  var _lsAvant = loginSuccess;
+  loginSuccess = function(account, offline) {
+    if (window._mdpSaisi) { try { localStorage.setItem(PFX + 'mdp_a_changer', account.id); } catch (e) {} }
+    window._mdpSaisi = false;
+    _lsAvant(account, offline);
+  };
+
+  poserCopyright();
+})();
+
+// Bouton « Tester la connexion » en tête du paramétrage
+function ajouterBoutonTest() {
+  setTimeout(function() {
+    var c = document.getElementById('parametrage-contenu');
+    if (!c || !hasRole('manager') || document.getElementById('btn-test-cnx')) return;
+    c.insertAdjacentHTML('afterbegin', '<button class="btn btn-secondary mb-12" id="btn-test-cnx" onclick="testerConnexion()">🔌 Tester la connexion au serveur</button>');
+  }, 50);
+}
+// Le détail des passages (ex-« Détail Quiz ») s'ouvre depuis le tableau de bord
+function ajouterLienDetail() {
+  var pane = document.querySelector('#screen-mgr-dashboard .cc-pane[data-pane="details"]');
+  if (!pane || !aAcces('quizdetail') || document.getElementById('btn-detail-quiz')) return;
+  pane.insertAdjacentHTML('afterbegin', '<button class="btn btn-secondary mb-12" id="btn-detail-quiz" onclick="goTo(\'screen-mgr-quiz-detail\')">🔎 Rechercher un passage (quiz, CDS, enseigne)</button>');
 }
 </script>
 </body>
