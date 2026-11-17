@@ -2751,15 +2751,15 @@ function tabAoa(nom) {
   return _tabImp.aoa[nom];
 }
 
-// En-tête probable : ≥ 2 libellés texte, suivis du plus grand nombre de lignes remplies
+// En-tête probable : la ligne de libellés texte la plus complète (≥ 2), suivie de données.
+// Une ligne de titres de groupe au-dessus (« MAGASIN », « OCTOBRE… ») a moins de cases remplies : elle est écartée.
 function tabDevinerEntete(aoa) {
   var meilleur = 0, score = -1;
   for (var i = 0; i < Math.min(25, aoa.length); i++) {
     var cells = aoa[i].filter(function(v) { return v !== ''; });
     if (cells.length < 2 || cells.some(tabEstNombre)) continue;
-    var n = 0;
-    for (var j = i + 1; j < aoa.length && aoa[j].some(function(v) { return v !== ''; }); j++) n++;
-    if (n > score) { score = n; meilleur = i; }
+    if (!(aoa[i + 1] || []).some(function(v) { return v !== ''; }) && !(aoa[i + 2] || []).some(function(v) { return v !== ''; })) continue;
+    if (cells.length > score) { score = cells.length; meilleur = i; }
   }
   return meilleur;
 }
@@ -2818,6 +2818,17 @@ function tabEntetes(nom) {
   for (var j = 0; j < larg; j++) {
     if (row[j]) continue;
     for (var r2 = debut; r2 < Math.min(aoa.length, debut + 300); r2++) if (aoa[r2][j]) { row[j] = 'Colonne ' + XLSX.utils.encode_col(j); break; }
+  }
+  // Même libellé dans plusieurs colonnes (ex. mêmes produits chaque mois) : on le préfixe
+  // par le titre de groupe fusionné au-dessus (« OCTOBRE 1 - Canon via Also · Canon PG-560 »)
+  var compte = {};
+  row.forEach(function(v) { if (v) compte[v] = (compte[v] || 0) + 1; });
+  if (Object.keys(compte).some(function(v) { return compte[v] > 1; })) {
+    var groupe = {};
+    tabFusions(nom).forEach(function(m) {
+      if (m.r2 < e && m.r1 >= e - 3 && m.c2 > m.c1) for (var c4 = m.c1; c4 <= m.c2; c4++) groupe[c4] = aoa[m.r1] && aoa[m.r1][m.c1];
+    });
+    row = row.map(function(v, j) { return v && compte[v] > 1 && groupe[j] ? groupe[j] + ' · ' + v : v; });
   }
   row.forEach(function(v, j) {
     if (!v) return;
