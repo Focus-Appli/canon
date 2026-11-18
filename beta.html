@@ -1449,7 +1449,8 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   </div>
   <div class="content">
     <div data-reglages="Promos" style="margin-bottom:10px"></div>
-    <button id="btn-mail-promos" class="btn btn-primary" onclick="ouvrirMailPromosModal()" style="margin-bottom:14px">📧 Envoyer les promos par mail</button>
+    <button id="btn-mail-promos" class="btn btn-primary" onclick="ouvrirMailPromosModal()" style="margin-bottom:8px">📧 Envoyer les promos par mail</button>
+    <button class="btn btn-secondary" onclick="ouvrirIlvEnseigne()" style="margin-bottom:14px">📕 ILV par enseigne</button>
     <!-- Enseigne filters -->
     <div class="section-label">Enseigne</div>
     <div class="promo-filter-bar" id="promo-filter-enseignes"></div>
@@ -1476,9 +1477,9 @@ window.appliquerMarqueSplash(window.marqueInitiale());
       <div class="form-group"><label class="form-label">Prix (€)</label><input class="form-input" id="promo-form-price" type="number" step="0.01" placeholder="ex : 49.99" /></div>
       <div class="form-group"><label class="form-label">Commentaire</label><textarea class="form-input" id="promo-form-comment" rows="3" placeholder="Commentaire libre..." style="resize:vertical"></textarea></div>
       <div class="form-group">
-        <label class="form-label">ILV à imprimer / envoyer (PDF)</label>
+        <label class="form-label">ILV à imprimer / envoyer (PDF, plusieurs possibles)</label>
         <div id="promo-form-pdf"></div>
-        <input type="file" id="promo-pdf-input" accept="application/pdf,.pdf" style="display:none" onchange="choisirPdfPromo(this)" />
+        <input type="file" id="promo-pdf-input" accept="application/pdf,.pdf" multiple style="display:none" onchange="choisirPdfPromo(this)" />
       </div>
       <div class="form-group">
         <label class="form-label">Catégorie *</label>
@@ -10949,7 +10950,7 @@ function envoyerMailPromos() {
     texte += cat + ' :\n';
     groupes[cat].forEach(function(p) {
       texte += p.name + (p.price ? ' à ' + p.price + '€' : '') + ' (Du ' + fmtPromoDate(p.start) + ' au ' + fmtPromoDate(p.end) + ')\n';
-      if (p.pdfId) texte += '   ILV à imprimer : ' + commFichierUrl(p.pdfId) + '\n';
+      pdfsPromo(p).forEach(function(f){ texte += '   ILV ' + f.nom + ' : ' + commFichierUrl(f.id) + '\n'; });
     });
     texte += '\n';
   });
@@ -11143,10 +11144,13 @@ div.style.cssText = 'position:fixed;z-index:9999;background:var(--white);border-
   var boutonStyle = 'font-size:12px;padding:4px 12px;border-radius:8px;border:1px solid var(--brand);color:var(--brand);background:rgba(var(--brand-rgb),0.15);cursor:pointer;font-weight:600';
   var fermer = 'document.getElementById(\'promo-tooltip\').remove();';
   // ILV : visible et envoyable par tous
-  if (p.pdfId) div.innerHTML += '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #eee">📕 ' + escHtml(p.pdfNom || 'ILV') + '</div>' +
+  var ilv = pdfsPromo(p);
+  if (ilv.length) div.innerHTML += '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #eee">' +
+    ilv.map(function(f) {
+      return '<a href="' + commFichierUrl(f.id) + '" target="_blank" rel="noopener" title="Ouvrir / imprimer" style="display:block;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📕 ' + escHtml(f.nom) + ' ↗</a>';
+    }).join('') + '</div>' +
     '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">' +
-      '<button onclick="' + fermer + 'ouvrirIlvPromo(\'' + p.id + '\')" style="' + boutonStyle + '">🖨️ Ouvrir / imprimer</button>' +
-      '<button onclick="' + fermer + 'envoyerIlvPromo(\'' + p.id + '\')" style="' + boutonStyle + '">📧 Envoyer</button></div>';
+      '<button onclick="' + fermer + 'envoyerIlvPromo(\'' + p.id + '\')" style="' + boutonStyle + '">📧 Envoyer ' + (ilv.length > 1 ? 'les ' + ilv.length + ' ILV' : 'l\'ILV') + '</button></div>';
   var editBtn = (currentAccount && (hasRole('manager') || hasRole('admin')))
     ? '<div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">' +
         '<button onclick="' + fermer + 'dupliquerPromo(\'' + p.id + '\')" style="' + boutonStyle + '" title="Repartir de cette promo pour en creer une nouvelle">\u29c9 Dupliquer</button>' +
@@ -11216,8 +11220,8 @@ function showPromoForm(id, copie) {
   }
 // ILV : repris de la promo modifiée ou dupliquée
   var srcPdf = id ? (db.promos || []).find(function(p){ return p.id === id; }) : null;
-  _promoPdf = (srcPdf && srcPdf.pdfId) ? { id: srcPdf.pdfId, nom: srcPdf.pdfNom || 'ILV.pdf', taille: Number(srcPdf.pdfTaille) || 0 } : null;
-  _promoPdfEnvoi = false;
+  _promoPdfs = pdfsPromo(srcPdf).map(function(f){ return { id: f.id, nom: f.nom, taille: f.taille }; });
+  _promoPdfEnvoi = 0;
   renderPromoPdf();
 var delWrap = document.getElementById('promo-delete-wrap');
   // Pas de suppression dans une copie : il n'y a encore rien a supprimer
@@ -11233,81 +11237,216 @@ function hidePromoForm() {
 function editPromo(id) { showPromoForm(id); }
 function dupliquerPromo(id) { showPromoForm(id, true); }
 
-// ── ILV (PDF) d'une promo : rangé dans le dossier Drive des Communications
-var _promoPdf = null, _promoPdfEnvoi = false;
+// ── ILV (PDF) des promos : plusieurs par promo, rangés dans le dossier Drive des Communications
+// promo.pdfs = [{ id, nom, taille }] ; anciennes promos : pdfId / pdfNom / pdfTaille (un seul PDF)
+function pdfsPromo(p) {
+  if (!p) return [];
+  if (Array.isArray(p.pdfs) && p.pdfs.length) return p.pdfs.filter(function(f){ return f && f.id; });
+  return p.pdfId ? [{ id: p.pdfId, nom: p.pdfNom || 'ILV.pdf', taille: Number(p.pdfTaille) || 0 }] : [];
+}
+var _promoPdfs = [], _promoPdfEnvoi = 0;
 function renderPromoPdf() {
   var c = document.getElementById('promo-form-pdf'); if (!c) return;
-  if (_promoPdfEnvoi) { c.innerHTML = '<div style="padding:10px;color:var(--dark-gray);font-size:13px">⏳ Envoi du PDF…</div>'; return; }
-  c.innerHTML = _promoPdf
-    ? '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--light-gray);border-radius:10px;font-size:13px">📕 ' +
-        '<a href="' + commFichierUrl(_promoPdf.id) + '" target="_blank" rel="noopener" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit">' + escHtml(_promoPdf.nom) + '</a>' +
-        '<span style="font-size:11px;color:var(--dark-gray)">' + commTaille(_promoPdf.taille || 0) + '</span>' +
-        '<button type="button" onclick="retirerPdfPromo()" title="Retirer" style="border:0;background:none;cursor:pointer;font-size:14px">✕</button></div>'
-    : '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'promo-pdf-input\').click()">📎 Joindre un PDF</button>';
+  c.innerHTML = _promoPdfs.map(function(f, k) {
+    return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--light-gray);border-radius:10px;font-size:13px;margin-bottom:6px">📕 ' +
+      '<a href="' + commFichierUrl(f.id) + '" target="_blank" rel="noopener" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit">' + escHtml(f.nom) + '</a>' +
+      '<span style="font-size:11px;color:var(--dark-gray)">' + commTaille(f.taille || 0) + '</span>' +
+      '<button type="button" onclick="retirerPdfPromo(' + k + ')" title="Retirer" style="border:0;background:none;cursor:pointer;font-size:14px">✕</button></div>';
+  }).join('') +
+  (_promoPdfEnvoi ? '<div style="padding:6px 0 8px;color:var(--dark-gray);font-size:13px">⏳ Envoi de ' + _promoPdfEnvoi + ' PDF…</div>' : '') +
+  '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'promo-pdf-input\').click()">📎 ' + (_promoPdfs.length ? 'Ajouter un autre PDF' : 'Joindre un ou plusieurs PDF') + '</button>';
 }
 function choisirPdfPromo(input) {
-  var f = (input.files || [])[0]; input.value = '';
-  if (!f) return;
-  if (f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name)) { showToast('❌ Seuls les PDF sont acceptés'); return; }
-  if (f.size > COMM_MAX) { showToast('❌ PDF trop lourd (15 Mo max)'); return; }
+  var fichiers = [].slice.call(input.files || []); input.value = '';
+  if (!fichiers.length) return;
   if (!navigator.onLine) { showToast('❌ Connexion requise pour joindre un PDF'); return; }
-  _promoPdfEnvoi = true; renderPromoPdf();
-  commLireFichier(f).then(function(url) { return commEnvoyer(f.name, url); }).then(function(res) {
-    _promoPdf = { id: res.id, nom: res.nom || f.name, taille: res.taille || f.size };
-    _promoPdfEnvoi = false; renderPromoPdf();
-    showToast('📕 PDF ajouté — pensez à enregistrer');
-  }).catch(function(e) {
-    _promoPdfEnvoi = false; renderPromoPdf();
-    showToast('❌ Envoi échoué : ' + e.message);
+  var pasPdf = fichiers.filter(function(f){ return f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name); });
+  if (pasPdf.length) { showToast('❌ Seuls les PDF sont acceptés (' + pasPdf[0].name + ')'); return; }
+  var trop = fichiers.filter(function(f){ return f.size > COMM_MAX; });
+  if (trop.length) { showToast('❌ ' + trop[0].name + ' dépasse 15 Mo'); return; }
+  _promoPdfEnvoi += fichiers.length; renderPromoPdf();
+  var suite = Promise.resolve(), ok = 0;
+  fichiers.forEach(function(f) {
+    suite = suite.then(function() {
+      return commLireFichier(f).then(function(url) { return commEnvoyer(f.name, url); }).then(function(res) {
+        _promoPdfs.push({ id: res.id, nom: res.nom || f.name, taille: res.taille || f.size }); ok++;
+      }).catch(function(e) { showToast('❌ ' + f.name + ' : ' + e.message); })
+        .then(function() { _promoPdfEnvoi--; renderPromoPdf(); });
+    });
+  });
+  suite.then(function() { if (ok) showToast('📕 ' + ok + ' PDF ajouté(s) — pensez à enregistrer'); });
+}
+function retirerPdfPromo(k) { _promoPdfs.splice(k, 1); renderPromoPdf(); }
+
+// ── Récupération des fichiers (via Apps Script : le Drive ne se lit pas directement depuis l'appli)
+function telechargerPdfComm(f) {
+  return apiPostJSON({ action: 'getCommFichier', id: f.id }).then(function(res) {
+    if (!res || res.status !== 'ok') throw new Error(f.nom + ' : ' + ((res && res.message) || 'indisponible'));
+    var bin = atob(res.data), a = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+    return { nom: res.nom || f.nom, octets: a };
   });
 }
-function retirerPdfPromo() { _promoPdf = null; renderPromoPdf(); }
-
-function ouvrirIlvPromo(id) {
-  var p = (db.promos || []).find(function(x){ return x.id === id; });
-  if (p && p.pdfId) window.open(commFichierUrl(p.pdfId), '_blank');
+function telechargerPdfsComm(liste, etat) {
+  var out = [], suite = Promise.resolve();
+  liste.forEach(function(f, k) {
+    suite = suite.then(function() {
+      if (etat) etat('⏳ Préparation ' + (k + 1) + '/' + liste.length + ' : ' + f.nom);
+      return telechargerPdfComm(f).then(function(x) { out.push(x); });
+    });
+  });
+  return suite.then(function() { return out; });
 }
-// Envoi : le PDF en vraie pièce jointe (partage du téléphone / de Windows) ou un lien par mail
+// Noms uniques (deux PDF du même nom dans un ZIP ou un partage)
+function nomsUniquesPdf(fichiers) {
+  var vus = {};
+  return fichiers.map(function(x) {
+    var n = String(x.nom || 'ILV.pdf').replace(/[\\/:*?"<>|]/g, '_'), base = n.replace(/\.pdf$/i, ''), i = 2;
+    while (vus[n.toLowerCase()]) n = base + ' (' + (i++) + ').pdf';
+    vus[n.toLowerCase()] = true;
+    return { nom: n, octets: x.octets };
+  });
+}
+
+// ── ZIP sans compression (les PDF sont déjà compressés)
+var _crcTable = null;
+function crc32(a) {
+  if (!_crcTable) { _crcTable = []; for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; _crcTable[n] = c >>> 0; } }
+  var crc = 0xFFFFFFFF;
+  for (var i = 0; i < a.length; i++) crc = _crcTable[(crc ^ a[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function creerZip(fichiers) {
+  var enc = new TextEncoder(), parts = [], central = [], pos = 0;
+  var d = new Date(), dt = ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF,
+      dd = (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+  function entete(taille) { var b = new DataView(new ArrayBuffer(taille)); return b; }
+  fichiers.forEach(function(f) {
+    var nom = enc.encode(f.nom), crc = crc32(f.octets), n = f.octets.length;
+    var h = entete(30);
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+    h.setUint16(10, dt, true); h.setUint16(12, dd, true); h.setUint32(14, crc, true); h.setUint32(18, n, true); h.setUint32(22, n, true);
+    h.setUint16(26, nom.length, true); h.setUint16(28, 0, true);
+    parts.push(h.buffer, nom, f.octets);
+    var c = entete(46);
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+    c.setUint16(12, dt, true); c.setUint16(14, dd, true); c.setUint32(16, crc, true); c.setUint32(20, n, true); c.setUint32(24, n, true);
+    c.setUint16(28, nom.length, true); c.setUint32(42, pos, true);
+    central.push(c.buffer, nom);
+    pos += 30 + nom.length + n;
+  });
+  var tailleCentral = central.reduce(function(t, x) { return t + (x.byteLength || x.length); }, 0);
+  var fin = entete(22);
+  fin.setUint32(0, 0x06054b50, true); fin.setUint16(8, fichiers.length, true); fin.setUint16(10, fichiers.length, true);
+  fin.setUint32(12, tailleCentral, true); fin.setUint32(16, pos, true);
+  return new Blob(parts.concat(central, [fin.buffer]), { type: 'application/zip' });
+}
+function telechargerBlob(blob, nom) {
+  var url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+}
+
+// ── Envoi d'ILV : vraies pièces jointes (partage du téléphone / de Windows) ou liens par mail
 var _ilvPartage = null;
-function envoyerIlvPromo(id) {
-  var p = (db.promos || []).find(function(x){ return x.id === id; });
-  if (!p || !p.pdfId) return;
-  var sujet = 'ILV — ' + p.name;
-  var texte = 'Bonjour,\n\nVoici l\'ILV de la promotion ' + p.name + (p.price ? ' à ' + p.price + '€' : '') +
-    ' (du ' + formatDateFR(p.start) + ' au ' + formatDateFR(p.end) + ').\n\n';
+function envoyerIlv(liste, sujet, texte) {
+  if (!liste.length) return;
   var parLien = function() {
     fermerModalParam();
-    var corps = encodeURIComponent(texte + 'Télécharger le PDF : ' + commFichierUrl(p.pdfId) + '\n\nCordialement,');
+    var corps = encodeURIComponent(texte + liste.map(function(f) { return f.nom + ' : ' + commFichierUrl(f.id); }).join('\n') + '\n\nCordialement,');
     if (/Android|iPhone|iPad/i.test(navigator.userAgent)) window.location.href = 'mailto:?subject=' + encodeURIComponent(sujet) + '&body=' + corps;
     else window.open('https://outlook.office365.com/mail/deeplink/compose?subject=' + encodeURIComponent(sujet) + '&body=' + corps, '_blank');
   };
   if (!commPartageFichiersPossible()) { parLien(); return; }
-  _ilvPartage = { titre: sujet, texte: texte + 'Cordialement,', fichier: null, parLien: parLien };
-  ouvrirModalParam('<div style="font-size:15px;font-weight:700;margin-bottom:8px">Envoyer l\'ILV « ' + escHtml(p.name) + ' »</div>' +
+  _ilvPartage = { titre: sujet, texte: texte + 'Cordialement,', fichiers: null, parLien: parLien };
+  ouvrirModalParam('<div style="font-size:15px;font-weight:700;margin-bottom:8px">' + escHtml(sujet) + '</div>' +
+    '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:12px">' + liste.length + ' PDF</div>' +
     '<button class="btn btn-primary mb-8" id="ilv-btn-partage" onclick="partagerIlvPromo()">📎 PDF en pièce jointe</button>' +
-    '<div id="ilv-partage-etat" style="font-size:11px;color:var(--dark-gray);line-height:1.5;margin:-2px 0 12px">⏳ Préparation du PDF…</div>' +
-    '<button class="btn btn-secondary mb-8" onclick="_ilvPartage.parLien()">🔗 Lien de téléchargement par mail</button>' +
+    '<div id="ilv-partage-etat" style="font-size:11px;color:var(--dark-gray);line-height:1.5;margin:-2px 0 12px">⏳ Préparation…</div>' +
+    '<button class="btn btn-secondary mb-8" onclick="_ilvPartage.parLien()">🔗 Liens de téléchargement par mail</button>' +
     '<button class="btn btn-secondary" onclick="fermerModalParam()">Annuler</button>');
-  // Fichier préparé tout de suite : le partage doit partir d'un geste de l'utilisateur
-  apiPostJSON({ action: 'getCommFichier', id: p.pdfId }).then(function(res) {
-    if (!res || res.status !== 'ok') throw new Error((res && res.message) || 'PDF indisponible');
-    var bin = atob(res.data), a = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+  var etat = function(t) { var e = document.getElementById('ilv-partage-etat'); if (e) e.textContent = t; };
+  // Fichiers préparés tout de suite : le partage doit partir d'un geste de l'utilisateur
+  telechargerPdfsComm(liste, etat).then(function(fichiers) {
     if (!_ilvPartage) return;
-    _ilvPartage.fichier = new File([a], res.nom || p.pdfNom || 'ILV.pdf', { type: 'application/pdf' });
-    var e = document.getElementById('ilv-partage-etat'); if (e) e.textContent = '✅ PDF prêt : choisissez Outlook, Mail, WhatsApp…';
+    _ilvPartage.fichiers = nomsUniquesPdf(fichiers).map(function(x) { return new File([x.octets], x.nom, { type: 'application/pdf' }); });
+    etat('✅ PDF prêts : choisissez Outlook, Mail, WhatsApp…');
   }).catch(function(err) {
-    var e = document.getElementById('ilv-partage-etat'); if (e) e.textContent = '⚠️ ' + err.message + ' : utilisez le lien.';
+    etat('⚠️ ' + err.message + ' : utilisez les liens.');
     var b = document.getElementById('ilv-btn-partage'); if (b) b.disabled = true;
   });
 }
 function partagerIlvPromo() {
   var P0 = _ilvPartage; if (!P0) return;
-  if (!P0.fichier) { showToast('⏳ PDF en préparation, réessayez dans un instant'); return; }
-  var donnees = { title: P0.titre, text: P0.texte, files: [P0.fichier] };
-  if (!navigator.canShare(donnees)) { showToast('⚠️ Partage du fichier impossible : envoi par lien'); P0.parLien(); return; }
+  if (!P0.fichiers) { showToast('⏳ PDF en préparation, réessayez dans un instant'); return; }
+  var donnees = { title: P0.titre, text: P0.texte, files: P0.fichiers };
+  if (!navigator.canShare(donnees)) { showToast('⚠️ Partage des fichiers impossible : envoi par liens'); P0.parLien(); return; }
   navigator.share(donnees).then(function() { fermerModalParam(); })
     .catch(function(e) { if (e && e.name !== 'AbortError') showToast('⚠️ Partage impossible : ' + e.message); });
+}
+function envoyerIlvPromo(id) {
+  var p = (db.promos || []).find(function(x){ return x.id === id; });
+  if (!p) return;
+  envoyerIlv(pdfsPromo(p), 'ILV — ' + p.name, 'Bonjour,\n\nVoici les ILV de la promotion ' + p.name + (p.price ? ' à ' + p.price + '€' : '') +
+    ' (du ' + formatDateFR(p.start) + ' au ' + formatDateFR(p.end) + ').\n\n');
+}
+
+// ── ILV par enseigne : liste à télécharger (ZIP) ou à envoyer
+var _ilvEns = { ens: '', passees: false };
+function ilvDeLEnseigne() {
+  var auj = toISODate(new Date()), liste = [];
+  (db.promos || []).filter(function(p) {
+    return (p.enseignes || []).indexOf(_ilvEns.ens) !== -1 && pdfsPromo(p).length && (_ilvEns.passees || toISODate(p.end) >= auj);
+  }).sort(function(a, b) { return toISODate(a.start) < toISODate(b.start) ? -1 : 1; }).forEach(function(p) { liste.push(p); });
+  return liste;
+}
+function ouvrirIlvEnseigne(ens) {
+  var ensAvecIlv = (db.enseignes || []).filter(function(e) {
+    return (db.promos || []).some(function(p) { return (p.enseignes || []).indexOf(e) !== -1 && pdfsPromo(p).length; });
+  });
+  if (!ensAvecIlv.length) { showToast('Aucune promo n\'a encore d\'ILV'); return; }
+  if (ens !== undefined) _ilvEns.ens = ens;
+  if (ensAvecIlv.indexOf(_ilvEns.ens) === -1) _ilvEns.ens = (promoFilterEnseigne && ensAvecIlv.indexOf(promoFilterEnseigne) !== -1) ? promoFilterEnseigne : ensAvecIlv[0];
+  var promos = ilvDeLEnseigne(), nb = promos.reduce(function(t, p) { return t + pdfsPromo(p).length; }, 0);
+  var h = '<div style="font-size:15px;font-weight:700;margin-bottom:10px">📕 ILV par enseigne</div>' +
+    '<div class="promo-filter-bar">' + ensAvecIlv.map(function(e) {
+      return '<div class="promo-filter-chip' + (e === _ilvEns.ens ? ' active' : '') + '" onclick="ouvrirIlvEnseigne(\'' + e.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')">' + escHtml(e) + '</div>';
+    }).join('') + '</div>' +
+    '<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 10px"><input type="checkbox" ' + (_ilvEns.passees ? 'checked' : '') +
+      ' onchange="_ilvEns.passees=this.checked;ouvrirIlvEnseigne()" /> Inclure les promos terminées</label>';
+  if (!promos.length) h += '<div style="font-size:13px;color:var(--dark-gray);padding:10px 0">Aucun ILV pour les promos en cours ou à venir.</div>';
+  else h += promos.map(function(p) {
+    return '<div style="padding:8px 0;border-top:1px solid var(--beige)">' +
+      '<div style="font-size:13px;font-weight:700">' + escHtml(p.name) + ' <span style="font-weight:500;color:var(--dark-gray);font-size:11px">' + formatDateFR(p.start) + ' → ' + formatDateFR(p.end) + '</span></div>' +
+      pdfsPromo(p).map(function(f) {
+        return '<a href="' + commFichierUrl(f.id) + '" target="_blank" rel="noopener" style="display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px;color:inherit;text-decoration:none">' +
+          '<span>📕</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.nom) + '</span>' +
+          '<span style="font-size:11px;color:var(--dark-gray)">' + commTaille(f.taille || 0) + ' ↗</span></a>';
+      }).join('') + '</div>';
+  }).join('');
+  if (nb) h += '<div id="ilv-ens-etat" style="font-size:11px;color:var(--dark-gray);margin:10px 0 6px"></div>' +
+    '<button class="btn btn-primary mb-8" onclick="zipIlvEnseigne()">📦 Tout télécharger (' + nb + ' PDF, .zip)</button>' +
+    '<button class="btn btn-secondary mb-8" onclick="envoyerIlvEnseigne()">📧 Tout envoyer</button>';
+  h += '<button class="btn btn-secondary" onclick="fermerModalParam()">Fermer</button>';
+  ouvrirModalParam(h);
+}
+function listeIlvEnseigne() {
+  var l = [];
+  ilvDeLEnseigne().forEach(function(p) { pdfsPromo(p).forEach(function(f) { l.push(f); }); });
+  return l;
+}
+function zipIlvEnseigne() {
+  var liste = listeIlvEnseigne(); if (!liste.length) return;
+  if (!navigator.onLine) { showToast('❌ Connexion requise'); return; }
+  var etat = function(t) { var e = document.getElementById('ilv-ens-etat'); if (e) e.textContent = t; };
+  telechargerPdfsComm(liste, etat).then(function(fichiers) {
+    telechargerBlob(creerZip(nomsUniquesPdf(fichiers)), 'ILV ' + _ilvEns.ens.replace(/[\\/:*?"<>|]/g, '_') + ' ' + new Date().toISOString().slice(0, 10) + '.zip');
+    etat('✅ ZIP téléchargé (' + fichiers.length + ' PDF)');
+  }).catch(function(e) { etat('⚠️ ' + e.message); });
+}
+function envoyerIlvEnseigne() {
+  var liste = listeIlvEnseigne(); if (!liste.length) return;
+  envoyerIlv(liste, 'ILV — ' + _ilvEns.ens, 'Bonjour,\n\nVoici les ILV des promotions ' + _ilvEns.ens + ' :\n\n');
 }
 
 function savePromo() {
@@ -11327,7 +11466,7 @@ function savePromo() {
   if (!category) { showToast('❌ Catégorie requise'); return; }
   if (!enseignes.length) { showToast('❌ Au moins 1 enseigne requise'); return; }
   if (_promoPdfEnvoi) { showToast('⏳ PDF en cours d\'envoi, patientez'); return; }
-  var pdf = _promoPdf || {};
+  var pdfs = _promoPdfs.slice(), pdf = pdfs[0] || {};
 
   if (!db.promos) db.promos = [];
   // Ensure dates are in YYYY-MM-DD format
@@ -11335,9 +11474,9 @@ function savePromo() {
   var endISO = end;
   if (id) {
     var existing = db.promos.find(function(p){ return p.id === id; });
-    if (existing) { existing.name = name; existing.start = startISO; existing.end = endISO; existing.price = price; existing.comment = comment; existing.category = category; existing.enseignes = enseignes; existing.pdfId = pdf.id || ''; existing.pdfNom = pdf.nom || ''; existing.pdfTaille = pdf.taille || 0; }
+    if (existing) { existing.name = name; existing.start = startISO; existing.end = endISO; existing.price = price; existing.comment = comment; existing.category = category; existing.enseignes = enseignes; existing.pdfs = pdfs; existing.pdfId = pdf.id || ''; existing.pdfNom = pdf.nom || ''; existing.pdfTaille = pdf.taille || 0; }
   } else {
-    db.promos.push({ id: 'promo_' + Date.now(), name: name, start: startISO, end: endISO, price: price, comment: comment, category: category, enseignes: enseignes, pdfId: pdf.id || '', pdfNom: pdf.nom || '', pdfTaille: pdf.taille || 0 });
+    db.promos.push({ id: 'promo_' + Date.now(), name: name, start: startISO, end: endISO, price: price, comment: comment, category: category, enseignes: enseignes, pdfs: pdfs, pdfId: pdf.id || '', pdfNom: pdf.nom || '', pdfTaille: pdf.taille || 0 });
   }
   saveDB();
   autoSyncPromos();
