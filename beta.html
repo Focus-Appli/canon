@@ -770,6 +770,28 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   details.cc-acc.cc-card .cc-acc-body { padding:0 16px 16px; }
 </style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- ═══════ MODE PAYSAGE (v5.9) ═══════ -->
+<style>
+  /* Grand écran ou téléphone couché : contenu centré, plus de tuiles par ligne.
+     Les tableurs gardent toute la largeur (grands tableaux). */
+  .content, .content-tight { width:100%; max-width:1100px; margin-left:auto; margin-right:auto; }
+  #screen-tableur-saisie .content, #screen-tableur-saisie .content-tight { max-width:none; }
+  @media (min-width:640px) { .qa-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+  @media (min-width:900px) { .qa-grid { grid-template-columns:repeat(6,minmax(0,1fr)); } }
+  /* Téléphone en paysage : peu de hauteur, on resserre */
+  @media (orientation:landscape) and (max-height:520px) {
+    .topbar { padding-top:8px; padding-bottom:8px; }
+    .content { padding-top:12px; padding-bottom:12px; }
+    .home-hero { padding:10px 16px; margin-bottom:12px; }
+    .home-hero-title { font-size:18px; }
+    .qa-tile.qa-color { min-height:84px; padding:10px 6px; }
+    .qa-ic { width:38px; height:38px; font-size:19px; margin-bottom:6px; }
+    .quiz-question-text { font-size:17px; margin-bottom:12px; }
+    .quiz-options { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
+    .quiz-option { padding:10px 12px; }
+    .cc-tabs { top:46px; }
+  }
+</style>
 </head>
 <body>
 
@@ -8628,7 +8650,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.8.0-beta';
+var APP_VERSION = 'v5.9.0-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -13013,8 +13035,9 @@ function jeuAccueil(et, fin) {
   }
   if (et.gagnantPrec) h += '<div style="background:var(--beige);border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:14px">&#127942; Semaine dernière : <b>' + escHtml(et.gagnantPrec.secteur) + '</b> (' + et.gagnantPrec.points + ' pts)</div>';
   h += jeuTableau('Classement de la semaine', et.semaineCls) + jeuTableau('Classement du mois', et.moisCls);
+  h += '<button class="btn btn-secondary" style="margin-top:14px" onclick="jeuHistorique()">&#128220; Mes réponses</button>';
   if (aAcces('jeustats'))
-    h += '<button class="btn btn-secondary" style="margin-top:14px" onclick="jeuStats(\'semaine\')">&#128202; Statistiques des questions</button>';
+    h += '<button class="btn btn-secondary" style="margin-top:8px" onclick="jeuStats(\'semaine\')">&#128202; Statistiques des questions</button>';
   h += '<button class="btn btn-ghost" style="margin-top:8px" onclick="goTo(\'screen-home\')">Retour à l\'accueil</button>';
   z.innerHTML = h;
 }
@@ -13138,6 +13161,69 @@ function jeuStats(periode) {
       '<button class="btn btn-ghost" onclick="renderJeu()">Retour au jeu</button>';
   });
 }
+
+// ── Mes réponses : historique personnel de toutes mes parties terminées ──
+// Chaque joueur ne reçoit que SES parties (contrôle côté serveur par le jeton).
+// Gardé sur le téléphone : consultable sans réseau après un premier chargement.
+function jeuHistorique() {
+  var z = document.getElementById('jeu-zone');
+  var retour = '<button class="btn btn-ghost" style="margin-top:8px" onclick="renderJeu()">Retour au jeu</button>';
+  z.innerHTML = '<div style="text-align:center;padding:40px 0;color:var(--dark-gray)">Chargement de tes réponses…</div>';
+  var cache = jeuLocal('histo');
+  if (!navigator.onLine) {
+    if (cache) jeuHistoAfficher(cache, true);
+    else z.innerHTML = jeuMsg('&#128245;', 'Connexion nécessaire', 'Ton historique s\'affichera hors connexion après un premier chargement.') + retour;
+    return;
+  }
+  apiJsonp({ action: 'jeuHistorique' }, { timeout: 20000, retries: 2 }).then(function(r) {
+    if (!r || r.status !== 'ok' || !Array.isArray(r.parties)) throw new Error((r && r.message) || 'réponse vide');
+    jeuLocal('histo', r);
+    jeuHistoAfficher(r);
+  }).catch(function(e) {
+    if (cache) jeuHistoAfficher(cache, true);
+    else z.innerHTML = jeuMsg('&#9888;&#65039;', 'Historique indisponible', escHtml((e && e.message) || 'Réessaie dans un instant.')) + retour;
+  });
+}
+
+function jeuHistoAfficher(r, horsLigne) {
+  var z = document.getElementById('jeu-zone');
+  var ps = r.parties || [];
+  var jma = function(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '')); return m ? m[3] + '/' + m[2] + '/' + m[1] : String(iso || ''); };
+  var h = '<div style="font-family:\'Playfair Display\',serif;font-size:22px;margin:4px 0 4px">&#128220; Mes réponses</div>' +
+    '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:14px">Tes parties terminées, de la plus récente à la plus ancienne' +
+    (horsLigne ? ' · <b>hors connexion</b> (dernière version chargée)' : '') + '</div>';
+  if (!ps.length) {
+    h += jeuMsg('&#127919;', 'Aucune partie terminée', 'Tes réponses apparaîtront ici après ta première partie.');
+  } else {
+    var nbQ = 0, nbBons = 0, meilleur = 0;
+    ps.forEach(function(p) { nbQ += Number(p.total) || 0; nbBons += Number(p.bonnes) || 0; if ((Number(p.points) || 0) > meilleur) meilleur = Number(p.points) || 0; });
+    h += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+      [['Parties', ps.length], ['Bonnes réponses', (nbQ ? Math.round(nbBons / nbQ * 100) : 0) + ' %'], ['Meilleur score', meilleur + ' pts']].map(function(k) {
+        return '<div style="flex:1;background:var(--white);border-radius:12px;padding:10px;text-align:center">' +
+          '<div style="font-size:18px;font-weight:800">' + k[1] + '</div><div style="font-size:11px;color:var(--dark-gray)">' + k[0] + '</div></div>';
+      }).join('') + '</div>';
+    h += ps.map(function(p, i) {
+      var det = p.detail || [];
+      return '<details class="cc-acc cc-card" style="margin-bottom:8px;background:var(--white);border-radius:12px"' + (i === 0 ? ' open' : '') + '>' +
+        '<summary><span>Semaine du ' + escHtml(jma(p.semaine)) + '</span><em>' + (Number(p.bonnes) || 0) + '/' + (Number(p.total) || det.length) + ' · ' + (Number(p.points) || 0) + ' pts</em></summary>' +
+        '<div class="cc-acc-body">' +
+          '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:6px">&#9201; ' + jeuTemps(p.tempsMs) + (Number(p.serie) > 1 ? ' · &#128293; série de ' + p.serie + ' semaines' : '') + '</div>' +
+          det.map(function(c, k) {
+            return '<div style="padding:8px 0;border-bottom:1px solid var(--beige);font-size:13px">' +
+              '<div style="font-weight:600">' + (c.ok ? '&#9989; ' : '&#10060; ') + (k + 1) + '. ' + escHtml(c.q) + '</div>' +
+              '<div style="color:var(--dark-gray);margin-top:3px;line-height:1.5">' +
+                (c.choisie ? 'Ta réponse : ' + (c.ok ? '<b>' + escHtml(c.choisie) + '</b>' : escHtml(c.choisie)) : '&#9200; Temps écoulé') +
+                (c.ok ? '' : '<br>Bonne réponse : <b>' + escHtml(c.bonne) + '</b>') +
+                ' · ' + jeuTemps(c.ms) + '</div></div>';
+          }).join('') +
+        '</div></details>';
+    }).join('');
+  }
+  h += '<button class="btn btn-ghost" style="margin-top:8px" onclick="renderJeu()">Retour au jeu</button>';
+  z.innerHTML = h;
+  try { window.scrollTo(0, 0); } catch (e) {}
+}
+
 
 function jeuEnvoyer(p) {
   var z = document.getElementById('jeu-zone');
