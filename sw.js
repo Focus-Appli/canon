@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const VERSION_INDEX  = 'v4.1.4';   // ← bump = purge chez les utilisateurs d'index.html
 const VERSION_BETA   = 'v4.3.9';   // ← bump = purge chez les bêta-testeurs uniquement
-const VERSION_ASSETS = 'v1';       // autres ressources same-origin (rarement bumpé)
+const VERSION_ASSETS = 'v2';       // autres ressources same-origin (rarement bumpé)
 
 const CACHE_INDEX  = 'canon-focus-index-'  + VERSION_INDEX;
 const CACHE_BETA   = 'canon-focus-beta-'   + VERSION_BETA;
