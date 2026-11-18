@@ -790,7 +790,20 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     .quiz-options { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
     .quiz-option { padding:10px 12px; }
     .cc-tabs { top:46px; }
+    /* Tableurs : barre d'outils sur une ligne, en-têtes plus bas = plus de lignes visibles */
+    #screen-tableur-saisie .topbar { padding-top:4px; padding-bottom:4px; }
+    #tableur-saisie-content { display:flex; flex-wrap:wrap; align-items:center; align-content:flex-start; column-gap:6px; padding:6px 10px; }
+    #tableur-saisie-content > * { flex:1 1 100%; }
+    #tableur-saisie-content > .tab-actions { flex:0 0 auto; margin-bottom:6px !important; }
+    #tableur-saisie-content > .tab-outils { flex:1 1 280px; }
+    #tableur-saisie-content .btn-sm { padding:6px 10px; }
+    #tab-prog { margin-bottom:4px !important; }
+    #tab-grille th { padding-top:3px !important; padding-bottom:3px !important; font-size:11px !important; }
+    #tab-grille th button { top:50%; bottom:auto !important; transform:translateY(-50%); }
+    #tab-grille .tab-plus { display:none; }
   }
+  /* Tableur en plein écran : on masque la barre du haut, les boutons et la progression */
+  #screen-tableur-saisie.tab-plein .topbar, #screen-tableur-saisie.tab-plein .tab-actions, #screen-tableur-saisie.tab-plein #tab-consigne, #screen-tableur-saisie.tab-plein #tab-prog { display:none !important; }
 </style>
 </head>
 <body>
@@ -2449,7 +2462,7 @@ function renderTableurSaisie() {
   if (gere) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirImportTableur(\'' + tEsc(tc.id) + '\')">📥 ' + (st ? 'Réimporter' : 'Importer') + '</button>');
   if (gere) btns.push('<button class="btn btn-secondary btn-sm" onclick="ouvrirReglagesTableur(\'' + tEsc(tc.id) + '\')">⚙️</button>');
   if (st && (gere || hasRole('admin'))) btns.push('<button class="btn btn-secondary btn-sm" onclick="exporterTableur()">📤 Exporter</button>');
-  var h = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">' + btns.join('') + '</div>';
+  var h = '<div class="tab-actions" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">' + btns.join('') + '</div>';
   if (tc.t.consigne) h += '<div id="tab-consigne" style="display:' + (tc.lignes.some(function(l) { return l.le; }) ? 'none' : 'block') + ';font-size:12px;color:var(--dark-gray);background:var(--white);border-radius:10px;padding:10px 12px;margin-bottom:8px;line-height:1.5;white-space:pre-line">' + tEsc(tc.t.consigne) + '</div>';
   if (!st) {
     c.innerHTML = h + '<div class="empty-state"><div class="empty-state-icon">📑</div><div class="empty-state-title">Pas encore importé</div>' +
@@ -2459,10 +2472,11 @@ function renderTableurSaisie() {
   if (tc.etat) h += '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:6px">' + tEsc(tc.etat) + '</div>';
   tabPreparer(tc);
   // Barre d'outils : progression, recherche, « à faire », mode édition (manager)
-  h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
+  h += '<div class="tab-outils" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">' +
     '<input class="form-input" type="search" placeholder="🔍 Rechercher…" value="' + tEsc(f.q) + '" oninput="tabRecherche(this.value)" style="flex:1;min-width:140px;margin:0;padding:8px 10px;font-size:13px" />' +
     '<button class="btn btn-sm ' + (f.statut === 'afaire' ? 'btn-primary' : 'btn-secondary') + '" onclick="_tabFiltre.statut=_tabFiltre.statut===\'afaire\'?\'\':\'afaire\';renderTabGrille()" style="width:auto;white-space:nowrap">À faire</button>' +
     (gere ? '<button class="btn btn-sm ' + (f.edition ? 'btn-primary' : 'btn-secondary') + '" onclick="_tabFiltre.edition=!_tabFiltre.edition;renderTableurSaisie()" style="width:auto;white-space:nowrap">✏️ Tout modifier</button>' : '') +
+    '<button class="btn btn-sm btn-secondary" onclick="tabPleinEcran()" title="Plein écran" style="width:auto;white-space:nowrap">' + (document.getElementById('screen-tableur-saisie').classList.contains('tab-plein') ? '🗗 Réduire' : '⛶ Plein écran') + '</button>' +
   '</div>' +
   (tabNbFiltres() ? '<button class="btn btn-sm btn-secondary" onclick="tabEffacerFiltres()" style="width:auto;margin-bottom:6px;color:#1D6F42;border-color:#1D6F42">✖ Effacer les filtres (' + tabNbFiltres() + ')</button>' : '') +
   '<div id="tab-prog" style="font-size:11px;color:var(--dark-gray);margin-bottom:6px"></div>';
@@ -2498,13 +2512,16 @@ function tabMajProgres() {
 function renderTabGrille() {
   var tc = _tabCourant, box = document.getElementById('tab-grille');
   if (!tc || !box) return;
+  var ancien = document.getElementById('tab-scroll');
+  var garder = _tabGarderScroll && ancien ? [ancien.scrollTop, ancien.scrollLeft] : null;
+  _tabGarderScroll = false;
   var st = tc.structure, cols = tabColsGrille(st), gere = tabEstGere(), edition = gere && _tabFiltre.edition;
   var toutes = st.colonnes || [];
   var liste = tabLignesFiltrees(tc);
   tabMajProgres();
   var px = function(c) { var w = Number(c.largeur) || 0; return Math.min(300, Math.max(Math.round(w * 0.62), (tc._larg && tc._larg[c.nom]) || 90)); };
   var css = 'border:1px solid #D4D4D4;padding:0;font-size:12px;vertical-align:middle;';
-  var h = '<div style="overflow:auto;max-height:calc(100vh - 240px);border:1px solid #BFBFBF;border-radius:6px;background:#fff;-webkit-overflow-scrolling:touch">' +
+  var h = '<div id="tab-scroll" onscroll="tabScrollPlus(this)" style="overflow:auto;max-height:calc(100vh - 240px);border:1px solid #BFBFBF;border-radius:6px;background:#fff;-webkit-overflow-scrolling:touch">' +
     '<table style="border-collapse:separate;border-spacing:0;table-layout:fixed;width:' + (30 + cols.reduce(function(t, c) { return t + px(c); }, 0) + (st.commentaire ? 170 : 0) + (edition ? 34 : 0)) + 'px"><colgroup><col style="width:30px">' +
     cols.map(function(c) { return '<col style="width:' + px(c) + 'px">'; }).join('') +
     (st.commentaire ? '<col style="width:170px">' : '') + (edition ? '<col style="width:34px">' : '') + '</colgroup><thead><tr>' +
@@ -2541,9 +2558,43 @@ function renderTabGrille() {
   h += '</tbody></table></div>';
   if (!liste.length) h += '<div class="empty-state"><div class="empty-state-icon">' + (tc.lignes.length ? '🔍' : '📭') + '</div><div class="empty-state-title">' +
     (tc.lignes.length ? 'Aucune ligne ne correspond' : (tc.charge ? 'Aucune ligne pour votre secteur' : 'Chargement…')) + '</div></div>';
-  if (liste.length > _tabFiltre.page) h += '<button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="_tabFiltre.page+=TAB_PAGE;renderTabGrille()">Afficher ' + Math.min(TAB_PAGE, liste.length - _tabFiltre.page) + ' lignes de plus (' + (liste.length - _tabFiltre.page) + ' restantes)</button>';
+  if (liste.length > _tabFiltre.page) h += '<button class="btn btn-secondary btn-sm tab-plus" style="width:100%;margin-top:8px" onclick="_tabGarderScroll=true;_tabFiltre.page+=TAB_PAGE;renderTabGrille()">Afficher ' + Math.min(TAB_PAGE, liste.length - _tabFiltre.page) + ' lignes de plus (' + (liste.length - _tabFiltre.page) + ' restantes)</button>';
   box.innerHTML = h;
+  tabAjusterHauteur();
+  var s = document.getElementById('tab-scroll');
+  if (s && garder) { s.scrollTop = garder[0]; s.scrollLeft = garder[1]; }
 }
+
+// La grille prend toute la hauteur libre de l'écran (portrait comme paysage)
+var _tabGarderScroll = false;
+function tabAjusterHauteur() {
+  var s = document.getElementById('tab-scroll'), g = document.getElementById('tab-grille');
+  if (!s || !g || !s.offsetParent) return;
+  var bas = 10, n;
+  for (n = s.nextElementSibling; n; n = n.nextElementSibling) bas += n.offsetHeight + 8;
+  for (n = g.nextElementSibling; n; n = n.nextElementSibling) bas += n.offsetHeight + 8;
+  var haut = s.getBoundingClientRect().top + (window.scrollY || 0);
+  s.style.maxHeight = Math.max(150, window.innerHeight - haut - bas) + 'px';
+}
+function tabPleinEcran() {
+  var e = document.getElementById('screen-tableur-saisie');
+  e.classList.toggle('tab-plein');
+  window.scrollTo(0, 0);
+  renderTableurSaisie();
+}
+// Lignes suivantes chargées toutes seules en arrivant en bas de la grille
+function tabScrollPlus(el) {
+  var tc = _tabCourant;
+  if (!tc || el.scrollTop + el.clientHeight < el.scrollHeight - 150) return;
+  if (tabLignesFiltrees(tc).length <= _tabFiltre.page) return;
+  _tabGarderScroll = true;
+  _tabFiltre.page += TAB_PAGE;
+  renderTabGrille();
+}
+window.addEventListener('resize', function() {
+  clearTimeout(tabAjusterHauteur._t);
+  tabAjusterHauteur._t = setTimeout(tabAjusterHauteur, 150);
+});
 
 // ── Saisie : une case modifiée → la ligne part au Sheet (regroupé sur 0,8 s)
 var _tabEnvois = {};
@@ -8650,7 +8701,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.9.0-beta';
+var APP_VERSION = 'v5.9.1-beta';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
