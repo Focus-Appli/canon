@@ -7647,7 +7647,7 @@ function renderMgrDashboard() {
   filtered.forEach(function(r) { if (r.vendeur) vendeurs[r.vendeur.trim().toLowerCase()] = true; });
   document.getElementById('mgr-vendeurs').textContent = Object.keys(vendeurs).length;
 
-  var rapportsPeriode = db.rapports.filter(function(rp) {
+  var rapportsPeriode = rapportsStats().filter(function(rp) {
     if (mgrPeriod !== 'all') {
       var d = new Date(rp.date);
       if (isNaN(d)) return false;
@@ -7764,9 +7764,10 @@ function ccChargerSuivi(force) {
   if (!currentAccount || !hasRole('manager') || !navigator.onLine || _ccSuivi.loading) return;
   if (!force && Date.now() - _ccSuivi.at < 5 * 60000) return;
   _ccSuivi.loading = true;
-  apiJsonp({ action: 'getDeviceInfo', limit: 1000 }, { timeout: 15000, retries: 2 }).then(function(d) {
+  apiJsonp({ action: 'getDeviceInfo', limit: 1000, parCompte: 300 }, { timeout: 25000, retries: 2 }).then(function(d) {
     _ccSuivi.sessions = (d && d.sessions) || [];
     _ccSuivi.logs = (d && d.logs) || [];
+    _ccSuivi.activite = (d && d.activite && typeof d.activite === 'object') ? d.activite : null;
     _ccSuivi.at = Date.now();
   }).catch(function() {}).then(function() {
     _ccSuivi.loading = false;
@@ -7872,7 +7873,7 @@ function renderCCKpis() {
     { v: total ? ccPct(ok, total) + '%' : '—', l: 'Taux de réussite', i: '🎯', c: total ? ccCouleurTaux(ccPct(ok, total)) : '' },
     { v: Object.keys(vend).length, l: 'Vendeurs formés', i: '👥' },
     { v: Object.keys(mag).length, l: 'Magasins touchés', i: '🏪' },
-    { v: _cc.rapports.length, l: 'Rapports de visite', i: '📄' }
+    { v: _cc.rapports.length, l: 'Rapports de visite' + rapportsSousTitre(_cc.perim), i: '📄' }
   ];
   if (_cc.perim && _cc.perim.tout) {
     k.push({ v: Object.keys(cds).length + (nbCDS ? '/' + nbCDS : ''), l: 'CDS actifs', i: '⚡' });
@@ -7894,7 +7895,7 @@ function renderCentreControle(filtered, rapports, perim, allResults) {
            (!_mgrFilterMagasin || r.magasin === _mgrFilterMagasin) &&
            (!_mgrFilterQuiz || r.quizName === _mgrFilterQuiz);
   });
-  var rapBase = (db.rapports || []).filter(function(r) {
+  var rapBase = rapportsStats().filter(function(r) {
     if (_mgrFilterEnseigne && r.enseigne !== _mgrFilterEnseigne) return false;
     return perim.tout || perim.enseignes.indexOf(r.enseigne) !== -1;
   });
@@ -7992,7 +7993,7 @@ function renderFicheCDS() {
 
   var tous = ccResultatsDe(acc, db.results || []);
   var res = tous.filter(function(r) { return ccDansPeriode(r.date); });
-  var raps = (db.rapports || []).filter(function(r) { return String(r.cdsId) === String(acc.id); });
+  var raps = rapportsStats().filter(function(r) { return String(r.cdsId) === String(acc.id); });
   var rapsP = raps.filter(function(r) { return ccDansPeriode(r.date); });
   var ok = res.filter(function(r) { return r.passed; }).length;
   var vend = {}, mag = {}, ens = {};
@@ -8029,7 +8030,9 @@ function renderFicheCDS() {
   if (_ccSuivi.at) {
     var lp = logs.filter(function(l) { return ccDansPeriode(l.ts); });
     var nb = function(ev) { return lp.filter(function(l) { return l.event === ev; }).length; };
-    var jours = {}; lp.forEach(function(l) { jours[String(l.ts).slice(0, 10)] = 1; });
+    // Présence : registre jour par jour du serveur (complet) ; à défaut, le journal chargé
+    var presence = ccPresenceDe(acc);
+    var jours = {}; Object.keys(presence).forEach(function(jr) { if (presence[jr] && ccDansPeriode(jr)) jours[jr] = 1; });
     var outils = {}; lp.filter(function(l) { return l.event === 'lien-externe'; }).forEach(function(l) { var k = l.details || '?'; outils[k] = (outils[k] || 0) + 1; });
     var ua = sess ? String(sess.userAgent || '') : '';
     var appareil = !ua ? '—' : /iPhone|iPad/.test(ua) ? '📱 iPhone' : /Android/.test(ua) ? '📱 Android' : /Windows/.test(ua) ? '💻 PC Windows' : /Mac/.test(ua) ? '💻 Mac' : '💻 Ordinateur';
@@ -8040,8 +8043,7 @@ function renderFicheCDS() {
     var cases = '';
     for (var i = 29; i >= 0; i--) {
       var dj = new Date(); dj.setDate(dj.getDate() - i);
-      var cle = dj.toISOString().slice(0, 10);
-      var n = logs.filter(function(l) { return String(l.ts).slice(0, 10) === cle; }).length;
+      var n = presence[jourLocal(dj)] || 0;
       var fond = !n ? 'var(--light-gray)' : n < 3 ? 'rgba(var(--brand-rgb),0.35)' : n < 8 ? 'rgba(var(--brand-rgb),0.65)' : 'var(--brand)';
       cases += '<div title="' + dj.toLocaleDateString('fr-FR') + ' : ' + n + ' action(s)" style="aspect-ratio:1;border-radius:4px;background:' + fond + '"></div>';
     }
@@ -8062,10 +8064,16 @@ function renderFicheCDS() {
     }).join('') + '</tbody></table></div>' : '<div class="cc-vide">Aucun passage sur la période</div>';
   h += ccVolet('quiz', '📝 Quiz passés', res.length, pass);
 
-  h += ccVolet('rap', '📄 Rapports de visite', rapsP.length, rapsP.length ? rapsP.slice().sort(function(a, b) { return new Date(b.date) - new Date(a.date); }).map(function(r) {
-    return '<div class="cc-ligne"><span>' + escHtml(r.date) + ' · ' + escHtml(r.enseigne) + ' · ' + escHtml(r.magasin) + '</span>' +
-      (r.docUrl ? '<a href="' + r.docUrl + '" target="_blank" rel="noopener" class="rapport-open-btn">Ouvrir</a>' : '<span style="color:var(--warning);font-size:11px">⏳</span>') + '</div>';
-  }).join('') : '<div class="cc-vide">Aucun rapport sur la période</div>');
+  var rapsMois = raps.filter(function(r) { return ccMoisCle(r.date) === ccMoisCle(new Date()); }).length;
+  var rapsSup = raps.filter(function(r) { return r.supprime; }).length;
+  h += ccVolet('rap', '📄 Rapports de visite', rapsP.length,
+    '<div class="cc-sub" style="margin-bottom:6px">Ce mois : <b>' + rapsMois + '</b> · depuis le début : <b>' + raps.length + '</b>' +
+      (rapsSup ? ' (dont ' + rapsSup + ' supprimé' + (rapsSup > 1 ? 's' : '') + ' ensuite)' : '') + '</div>' +
+    (rapsP.length ? rapsP.slice().sort(function(a, b) { return String(b.date).localeCompare(String(a.date)); }).map(function(r) {
+    return '<div class="cc-ligne"><span>' + escHtml(dateRapportFr(r.date)) + ' · ' + escHtml(r.enseigne) + ' · ' + escHtml(r.magasin) + '</span>' +
+      (r.supprime ? '<span style="color:var(--dark-gray);font-size:11px">Supprimé</span>' :
+       r.docUrl ? '<a href="' + r.docUrl + '" target="_blank" rel="noopener" class="rapport-open-btn">Ouvrir</a>' : '<span style="color:var(--warning);font-size:11px">⏳</span>') + '</div>';
+  }).join('') : '<div class="cc-vide">Aucun rapport sur la période</div>'));
 
   if (anomalies.length) h += ccVolet('ano', '🚩 Anomalies remontées', anomalies.length, anomalies.map(function(l) {
     return '<div class="cc-ligne"><span>' + escHtml(formatDmDate(l.ts)) + ' · ' + escHtml(l.details) + '</span></div>';
@@ -8203,7 +8211,7 @@ function ccConstruireExport(X, style) {
   // Rapports
   feuille('Rapports', 'Rapports de visite', ['Date', 'CDS', 'Enseigne', 'Nom du rapport', 'Template', 'Lien Google Doc'],
     raps.slice().sort(function(a, b) { return new Date(b.date) - new Date(a.date); }).map(function(r) {
-      return [r.date, r.cdsName || '', r.enseigne || '', r.magasin || '', r.templateName || '', r.docUrl || 'En attente'];
+      return [dateRapportFr(r.date), r.cdsName || '', r.enseigne || '', r.magasin || '', r.templateName || '', r.supprime ? 'Supprimé' : (r.docUrl || 'En attente')];
     }), [11, 20, 14, 30, 24, 50]);
 
   var nom = nomFichier('Dashboard') + '_' + (mgrPeriod === 'all' ? 'complet' : mgrPeriod) + (_mgrFilterEnseigne ? '_' + _mgrFilterEnseigne.replace(/\W+/g, '') : '') + '.xlsx';
@@ -9328,6 +9336,11 @@ var deletedF = db.deletedFormationIds || [];
       });
     }
   }
+
+  // Rapports supprimés par la suite : gardés pour les compteurs (registre du serveur)
+  if (Array.isArray(data.rapportsSupprimes)) db.rapportsSupprimes = data.rapportsSupprimes;
+  // Dates de rapport : toujours AAAA-MM-JJ (certaines arrivaient en « Mon Nov 16 2026 … »)
+  (db.rapports || []).forEach(function(r) { r.date = dateRapportISO(r.date); });
 
   // ── SYNC FIABLE : photo de l'état serveur (pour n'envoyer ensuite que les vraies modifications)
   takeSyncSnapshot('promo', db.promos);
@@ -12868,6 +12881,8 @@ function jeuStats(periode) {
           return '<div style="flex:1;background:var(--white);border-radius:12px;padding:10px;text-align:center">' +
             '<div style="font-size:18px;font-weight:800">' + k[1] + '</div><div style="font-size:11px;color:var(--dark-gray)">' + k[0] + '</div></div>';
         }).join('') + '</div>' +
+        jeuStatsJoueurs(r.joueurs, periode) +
+        '<div style="font-size:13px;font-weight:700;margin:18px 0 4px">&#10067; Par question</div>' +
         '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:8px">Des questions les plus ratées aux mieux réussies</div>';
       h += r.questions.map(function(q) {
         return '<div style="background:var(--white);border-radius:12px;padding:12px;margin-bottom:8px">' +
@@ -13448,6 +13463,264 @@ function ajouterLienDetail() {
   var pane = document.querySelector('#screen-mgr-dashboard .cc-pane[data-pane="details"]');
   if (!pane || !aAcces('quizdetail') || document.getElementById('btn-detail-quiz')) return;
   pane.insertAdjacentHTML('afterbegin', '<button class="btn btn-secondary mb-12" id="btn-detail-quiz" onclick="goTo(\'screen-mgr-quiz-detail\')">🔎 Rechercher un passage (quiz, CDS, enseigne)</button>');
+}
+</script>
+<!-- ═══════ RAPPORTS (compteurs) · PRÉSENCE · VITESSE DU JEU · RECHERCHE GLOBALE ═══════ -->
+<script>
+// ── Rapports : dates et compteurs (les rapports supprimés restent comptés) ──
+var RG_MOIS_EN = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+function dateRapportISO(v) {
+  var s = String(v || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  var m = /^[A-Za-z]{3} ([A-Za-z]{3}) (\d{1,2}) (\d{4})/.exec(s);          // « Mon Nov 16 2026 01:00:00 GMT+0100 … »
+  if (m && RG_MOIS_EN[m[1].toLowerCase()]) return m[3] + '-' + ('0' + RG_MOIS_EN[m[1].toLowerCase()]).slice(-2) + '-' + ('0' + m[2]).slice(-2);
+  var d = new Date(s);
+  return isNaN(d) ? s : jourLocal(d);
+}
+function dateRapportFr(v) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateRapportISO(v));
+  return m ? m[3] + '/' + m[2] + '/' + m[1] : String(v || '');
+}
+function jourLocal(d) {
+  d = new Date(d);
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+// Rapports présents + rapports supprimés ensuite (registre du serveur), dates normalisées
+function rapportsStats() {
+  var vus = {}, out = [];
+  (db.rapports || []).forEach(function(r) { vus[r.id] = 1; out.push(Object.assign({}, r, { date: dateRapportISO(r.date) })); });
+  (db.rapportsSupprimes || []).forEach(function(r) {
+    if (vus[r.id]) return;
+    vus[r.id] = 1;
+    out.push(Object.assign({}, r, { date: dateRapportISO(r.date), supprime: true, docUrl: '' }));
+  });
+  return out;
+}
+// Sous-titre de la tuile « Rapports de visite » : ce mois + total, quel que soit le filtre de période
+function rapportsSousTitre(perim) {
+  var l = rapportsStats().filter(function(r) {
+    if (typeof _mgrFilterEnseigne !== 'undefined' && _mgrFilterEnseigne && r.enseigne !== _mgrFilterEnseigne) return false;
+    return !perim || perim.tout || (perim.enseignes || []).indexOf(r.enseigne) !== -1;
+  });
+  var mois = ccMoisCle(new Date()), nm = l.filter(function(r) { return ccMoisCle(r.date) === mois; }).length;
+  return '<span style="display:block;font-size:10px;opacity:0.75;margin-top:2px">ce mois : ' + nm + ' · total : ' + l.length + '</span>';
+}
+
+// ── Présence d'un compte : { 'AAAA-MM-JJ': nombre d'actions } ──
+// Source : onglet Activite du serveur (complet). Sinon, le journal chargé
+// (1000 dernières lignes de toute l'équipe), sans erreurs ni lignes de sécurité.
+function ccPresenceDe(acc) {
+  var a = _ccSuivi.activite;
+  if (a && typeof a === 'object') return a[String(acc.id)] || {};
+  var p = {};
+  ccLogsDe(acc).forEach(function(l) {
+    var ev = String(l.event || '');
+    if (!ev || ev.indexOf('secu-') === 0 || ev === 'js-error') return;
+    var t = new Date(l.ts); if (isNaN(t)) return;
+    var k = jourLocal(t); p[k] = (p[k] || 0) + 1;
+  });
+  return p;
+}
+
+// ── Jeu : vitesse des joueurs (statistiques) ──
+function jeuStatsJoueurs(js, periode) {
+  if (!js || !js.length) return '';
+  var med = ['&#129351;', '&#129352;', '&#129353;'];
+  var plusieurs = js.some(function(j) { return j.parties > 1; });
+  return '<div style="font-size:13px;font-weight:700;margin:4px 0 4px">&#9889; Vitesse des joueurs</div>' +
+    '<div style="font-size:12px;color:var(--dark-gray);margin-bottom:8px">Temps de réponse ' + (plusieurs ? 'moyen par partie' : 'de la partie') + ' (chrono du jeu), du plus rapide au plus lent</div>' +
+    js.map(function(j, i) {
+      return '<div style="display:flex;align-items:center;gap:10px;background:var(--white);border-radius:12px;padding:10px 12px;margin-bottom:6px">' +
+        '<span style="width:24px;text-align:center">' + (med[i] || (i + 1)) + '</span>' +
+        '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">' + escHtml(j.nom || '—') + '</div>' +
+          '<div style="font-size:11px;color:var(--dark-gray)">' + (j.secteur ? escHtml(j.secteur) + ' · ' : '') + j.reussite + ' % de bonnes réponses' +
+          (plusieurs ? ' · ' + j.parties + ' partie' + (j.parties > 1 ? 's' : '') + ' · meilleur ' + jeuTemps(j.meilleur) : '') +
+          (j.fin && periode === 'semaine' ? ' · fini le ' + escHtml(formatDmDate(j.fin)) : '') + '</div></div>' +
+        '<div style="text-align:right;flex-shrink:0"><div style="font-weight:800">' + jeuTemps(j.tempsPartie) + '</div>' +
+          '<div style="font-size:11px;color:var(--dark-gray)">' + jeuTemps(j.tempsQuestion) + ' / question</div></div></div>';
+    }).join('');
+}
+
+// ══════════════════════════════════════════════════════════
+// RECHERCHE GLOBALE — champ en haut de l'accueil
+// Magasins, promos, formations, quiz, outils, tableurs, rapports et écrans,
+// selon les accès du compte. Aucun appel réseau : tout est cherché sur le téléphone.
+// ══════════════════════════════════════════════════════════
+var _rgActions = [], _rgPrefill = null;
+(function() {
+  var _rhrcRg = renderHomeRoleCards;
+  renderHomeRoleCards = function() { _rhrcRg(); try { rgInstaller(); } catch (e) {} };
+  var _oseRg = onScreenEnter;
+  onScreenEnter = function(id) {
+    _oseRg(id);
+    if (_rgPrefill && _rgPrefill.ecran === id) {
+      var p = _rgPrefill; _rgPrefill = null;
+      setTimeout(function() {
+        var el = document.getElementById(p.champ);
+        if (el) { el.value = p.valeur; try { p.rendu(); } catch (e) {} }
+      }, 60);
+    }
+  };
+})();
+
+function rgInstaller() {
+  var hero = document.getElementById('home-hero');
+  if (!hero || !currentAccount || document.getElementById('rg-wrap')) return;
+  var w = document.createElement('div');
+  w.id = 'rg-wrap';
+  w.style.cssText = 'margin:0 0 14px';
+  w.innerHTML = '<input class="form-input" id="rg-input" type="search" autocomplete="off" enterkeyhint="search" ' +
+    'placeholder="&#128269; Rechercher un magasin, une promo, une formation…" oninput="rgChercher()" ' +
+    'onkeydown="if(event.key===\'Escape\'){this.value=\'\';rgChercher();this.blur();}" style="width:100%">' +
+    '<div id="rg-res"></div>';
+  hero.parentNode.insertBefore(w, hero.nextSibling);
+}
+
+function rgNorm(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+}
+function rgCorrespond(mots, texte) {
+  var t = rgNorm(texte);
+  return mots.every(function(m) { return t.indexOf(m) !== -1; });
+}
+function rgDateCourte(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? m[3] + '/' + m[2] : '';
+}
+function rgAction(fn) { _rgActions.push(fn); return _rgActions.length - 1; }
+function rgGo(i) {
+  var fn = _rgActions[i];
+  var inp = document.getElementById('rg-input');
+  if (inp) { inp.value = ''; inp.blur(); }
+  var res = document.getElementById('rg-res'); if (res) res.innerHTML = '';
+  if (fn) fn();
+}
+
+function rgChercher() {
+  var inp = document.getElementById('rg-input'), zone = document.getElementById('rg-res');
+  if (!inp || !zone) return;
+  var q = rgNorm(inp.value);
+  _rgActions = [];
+  if (q.length < 2 || !currentAccount) { zone.innerHTML = ''; return; }
+  var mots = q.split(' ').filter(Boolean), groupes = [];
+  var ajouter = function(titre, items) { if (items.length) groupes.push({ titre: titre, items: items }); };
+  var gere = hasRole('manager') || hasRole('admin');
+
+  // Écrans (tuiles accessibles)
+  var nomTuile = function(t) { return t.lib ? String(P(t.lib) || t.lbl) : t.lbl; };
+  ajouter('Écrans', (typeof TUILES !== 'undefined' ? TUILES : []).filter(function(t) {
+    try { return tuileAutorisee(t) && rgCorrespond(mots, nomTuile(t)); } catch (e) { return false; }
+  }).map(function(t) {
+    return { ic: t.ic, t: nomTuile(t), s: 'Ouvrir l\'écran', a: rgAction(function() { new Function(t.go)(); }) };
+  }));
+
+  // Magasins (même périmètre que « Mes magasins »)
+  if (aAcces('magasins')) {
+    var sect = currentAccount.sector || '';
+    ajouter('Magasins', (db.pdvList || []).filter(function(p) {
+      if (p.statut && p.statut !== 'actif') return false;
+      if (sect && p.secteur !== sect) return false;
+      return rgCorrespond(mots, p.name + ' ' + p.enseigne + ' ' + p.secteur);
+    }).map(function(p) {
+      return { ic: '&#127978;', t: p.name, s: [p.enseigne, p.secteur, p.email].filter(Boolean).join(' · '),
+        a: rgAction(function() {
+          _rgPrefill = { ecran: 'screen-mes-magasins', champ: 'mes-mag-search', valeur: p.name, rendu: renderMesMagasins };
+          goTo('screen-mes-magasins');
+        }) };
+    }));
+  }
+
+  // Promos : en cours et à venir d'abord, terminées depuis plus de 30 jours exclues
+  if (aAcces('promo')) {
+    var auj = jourLocal(new Date()), limite = jourLocal(new Date(Date.now() - 30 * 86400000));
+    ajouter('Promos', (db.promos || []).filter(function(p) {
+      if (p.end && String(p.end) < limite) return false;
+      return rgCorrespond(mots, p.name + ' ' + (p.category || '') + ' ' + (p.enseignes || []).join(' ') + ' ' + (p.price || ''));
+    }).sort(function(a, b) {
+      var ea = String(a.end || '') < auj ? 1 : 0, eb = String(b.end || '') < auj ? 1 : 0;
+      return (ea - eb) || String(a.start || '').localeCompare(String(b.start || ''));
+    }).map(function(p) {
+      var fini = p.end && String(p.end) < auj, avenir = p.start && String(p.start) > auj;
+      return { ic: '&#127873;', t: p.name, s: (fini ? 'Terminée · ' : avenir ? 'À venir · ' : 'En cours · ') + rgDateCourte(p.start) + ' → ' + rgDateCourte(p.end) +
+        ((p.enseignes || []).length ? ' · ' + p.enseignes.join(', ') : ''), a: rgAction(function() { goTo('screen-promos'); }) };
+    }));
+  }
+
+  // Formations
+  if (aAcces('formation')) {
+    ajouter('Formations', (db.formations || []).filter(function(f) {
+      return rgCorrespond(mots, (f.title || '') + ' ' + (f.category || ''));
+    }).map(function(f) {
+      return { ic: '&#127891;', t: f.title || 'Formation', s: f.category || '', a: rgAction(function() {
+        if (f.fileId) { openFormationPdf(f.id); return; }
+        _rgPrefill = { ecran: 'screen-formations', champ: 'formation-search', valeur: f.title || '', rendu: renderFormationsList };
+        goTo('screen-formations');
+      }) };
+    }));
+  }
+
+  // Quiz
+  if (aAcces('quiz')) {
+    ajouter('Quiz', (db.quizzes || []).filter(function(z) {
+      return rgCorrespond(mots, (z.name || '') + ' ' + (z.gamme || ''));
+    }).map(function(z) {
+      return { ic: '&#128221;', t: z.name, s: (z.gamme ? z.gamme + ' · ' : '') + (z.questions || []).length + ' questions · faire passer',
+        a: rgAction(function() { goToCDSQuizDirect(); }) };
+    }));
+  }
+
+  // Outils
+  if (aAcces('outils')) {
+    ajouter('Outils', liensVisibles().filter(function(l) {
+      return rgCorrespond(mots, l.titre + ' ' + (l.sousTitre || ''));
+    }).map(function(l) {
+      return { ic: '&#128279;', t: l.titre, s: l.sousTitre || 'Ouvrir l\'outil', a: rgAction(function() { ouvrirLienExterne(l.url, l.titre); }) };
+    }));
+  }
+
+  // Tableurs
+  if (aAcces('tableurs')) {
+    ajouter('Tableurs', tableursVisibles().filter(function(t) {
+      return rgCorrespond(mots, t.titre + ' ' + (t.sousTitre || ''));
+    }).map(function(t) {
+      return { ic: '&#128209;', t: t.titre, s: t.sousTitre || (t.echeance ? 'À rendre le ' + dateRapportFr(t.echeance) : ''), a: rgAction(function() {
+        if (tableurStructure(t.id)) ouvrirTableurSaisie(t.id); else if (t.url) ouvrirTableur(t.id); else goTo('screen-tableurs');
+      }) };
+    }));
+  }
+
+  // Rapports de visite (même visibilité que les listes de rapports)
+  if (aAcces('rapports') || aAcces('enseignes')) {
+    var mesEns = currentAccount.enseignes || [];
+    ajouter('Rapports de visite', (db.rapports || []).filter(function(r) {
+      var visible = gere || String(r.cdsId) === String(currentAccount.id) || (hasRole('referent') && mesEns.indexOf(r.enseigne) !== -1);
+      return visible && rgCorrespond(mots, r.magasin + ' ' + r.enseigne + ' ' + (r.templateName || '') + ' ' + (r.cdsName || '') + ' ' + dateRapportFr(r.date));
+    }).sort(function(a, b) { return dateRapportISO(b.date).localeCompare(dateRapportISO(a.date)); }).map(function(r) {
+      return { ic: '&#128196;', t: r.magasin + ' — ' + r.enseigne, s: dateRapportFr(r.date) + (r.templateName ? ' · ' + r.templateName : '') + (r.cdsName ? ' · ' + r.cdsName : ''),
+        a: rgAction(function() {
+          if (r.docUrl) { try { window.open(r.docUrl, '_blank', 'noopener'); } catch (e) { location.href = r.docUrl; } }
+          else goTo('screen-rapports');
+        }) };
+    }));
+  }
+
+  if (!groupes.length) {
+    zone.innerHTML = '<div style="padding:12px 4px;font-size:13px;color:var(--dark-gray)">Aucun résultat pour « ' + escHtml(inp.value.trim()) + ' »</div>';
+    return;
+  }
+  var MAX = 5;
+  zone.innerHTML = '<div style="background:var(--white);border-radius:14px;box-shadow:var(--shadow);margin-top:8px;padding:4px 0;max-height:60vh;overflow-y:auto">' +
+    groupes.map(function(g) {
+      return '<div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--dark-gray);padding:10px 14px 4px">' +
+        escHtml(g.titre) + (g.items.length > MAX ? ' · ' + g.items.length : '') + '</div>' +
+        g.items.slice(0, MAX).map(function(it) {
+          return '<div onclick="rgGo(' + it.a + ')" style="display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer">' +
+            '<span style="font-size:18px;width:24px;text-align:center;flex-shrink:0">' + it.ic + '</span>' +
+            '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(it.t) + '</div>' +
+            (it.s ? '<div style="font-size:11px;color:var(--dark-gray);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(it.s) + '</div>' : '') + '</div></div>';
+        }).join('') +
+        (g.items.length > MAX ? '<div style="font-size:11px;color:var(--dark-gray);padding:2px 14px 6px 48px">+ ' + (g.items.length - MAX) + ' autre' + (g.items.length - MAX > 1 ? 's' : '') + ' — précise ta recherche</div>' : '');
+    }).join('') + '</div>';
 }
 </script>
 </body>
