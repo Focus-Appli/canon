@@ -215,7 +215,10 @@ self.addEventListener('fetch', function(e) {
       url.indexOf('fonts.') > -1) return;
 
   // Le sw.js lui-même n'est jamais servi depuis le cache
-  if (url.indexOf(BASE + 'sw.js') > -1) return;
+   if (url.indexOf(BASE + 'sw.js') > -1) return;
+
+  // Manifestes : toujours lus sur le réseau (sinon Chrome installe l'appli avec un ancien réglage, ex. orientation)
+  if (/manifest[^\/]*\.json/.test(url)) return;
 
   // Images de formation hébergées sur Drive : cache permanent, cache-first
   if (url.indexOf('lh3.googleusercontent.com') > -1 || url.indexOf('drive.google.com/thumbnail') > -1) {
