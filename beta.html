@@ -8704,7 +8704,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.0.1';
+var APP_VERSION = 'v5.0.2';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -9721,8 +9721,13 @@ function loginSuccess(account, offline) {
   if (!offline && navigator.onLine) {
     showToast('Synchronisation en cours\u2026');
     importViaScript({ full: true }).then(function() {
+      _lastAutoSync = Date.now();
       showToast('\u2705 Donn\u00e9es synchronis\u00e9es');
-    }).catch(function() {});
+    }).catch(function() {
+      // Échec du premier chargement (réseau lent) : on prévient et on relance
+      showToast('\u26a0\ufe0f Synchro incompl\u00e8te \u2014 nouvel essai dans 30 s');
+      setTimeout(function() { runAutoSync(true); }, 30000);
+    });
   }
 }
 
