@@ -6893,7 +6893,7 @@ function renderPDVList() {
       '<div style="font-size:22px">🏪</div>' +
       '<div style="flex:1">' +
         '<div style="font-size:13px;font-weight:600">' + escHtml(p.name) + '</div>' +
-        '<div style="font-size:11px;color:var(--dark-gray)">' + p.enseigne + ' · ' + p.secteur + '</div>' +
+        '<div style="font-size:11px;color:var(--dark-gray)">' + escHtml(p.enseigne) + ' · ' + escHtml(p.secteur) + '</div>' +
         (p.email ? '<div style="font-size:10px;color:var(--coral)">' + escHtml(p.email) + '</div>' : '') +
         (p.email2 ? '<div style="font-size:10px;color:var(--coral)">' + escHtml(p.email2) + '</div>' : '') +
       '</div>' +
@@ -7210,7 +7210,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('pageshow', function(e) { if (e.persisted) checkForAppUpdate(true); });
   window.addEventListener('focus', function() { checkForAppUpdate(); });
   window.addEventListener('online', function() { checkForAppUpdate(true); });
-  setInterval(function() { checkForAppUpdate(); }, 15 * 60 * 1000);
+  setInterval(function() { if (document.visibilityState !== 'hidden') checkForAppUpdate(); }, 15 * 60 * 1000);
 }
 
 function showUpdatePopup() {
@@ -7271,7 +7271,9 @@ try {
   loadDB();
   syncAccountsToCDSAndFormateurs();
   updateNetworkUI();
-  setInterval(updateNetworkUI, 5000);
+  // Appli en arrière-plan : pas de rafraîchissement inutile (batterie) ; mise à jour dès le retour
+  setInterval(function() { if (document.visibilityState !== 'hidden') updateNetworkUI(); }, 5000);
+  document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'visible') updateNetworkUI(); });
 // Reprise de session : on repart du jeton, pas d'une liste de comptes locale.
   // Un jeton expire renvoie a l'ecran de connexion (saisie du mot de passe).
   var _sess = getSession();
@@ -7380,7 +7382,7 @@ setTimeout(function() { runAutoSync(true); }, 2000);
 document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'visible') runAutoSync(false);
 });
-setInterval(function() { runAutoSync(false); }, 10 * 60 * 1000);
+setInterval(function() { if (document.visibilityState !== 'hidden') runAutoSync(false); }, 10 * 60 * 1000);
 
 
 // ══════════════════════════════════════════════════════════
@@ -8570,7 +8572,8 @@ var QUEUEABLE_ACTIONS = ['syncAllPDV', 'updatePDVComment', 'upsertFormation', 'd
 // Le jeton de session est ajoute ici, une fois pour toutes : aucune action
 // n'a besoin d'y penser. 'login' est la seule exception (il n'en a pas encore).
 function withToken(payload) {
-  if (!payload || payload.action === 'login') return payload;
+  // resetConfirm porte déjà son propre jeton (celui du mail) : ne pas l'écraser
+  if (!payload || payload.action === 'login' || payload.action === 'resetConfirm') return payload;
   var t = sessionToken();
   if (t) payload.token = t;
   return payload;
@@ -8701,7 +8704,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.0';
+var APP_VERSION = 'v5.0.1';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
