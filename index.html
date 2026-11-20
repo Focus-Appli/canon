@@ -750,6 +750,14 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     .cc-kpi-v { font-size:20px; }
     .cc-kpi-l { font-size:10px; line-height:1.25; }
   }
+  .cc-rech-box { position:absolute; left:0; right:0; z-index:60; background:var(--white); border-radius:12px; box-shadow:var(--shadow); margin-top:6px; padding:4px 0; max-height:55vh; overflow-y:auto; }
+  .cc-rech-item { display:flex; gap:10px; align-items:center; padding:8px 12px; cursor:pointer; font-size:13px; }
+  .cc-rech-item:hover { background:var(--light-gray); }
+  .cc-rech-item > span { font-size:18px; width:24px; text-align:center; flex-shrink:0; }
+  .cc-rech-item small { display:block; font-size:11px; color:var(--dark-gray); }
+  .cc-kpi[onclick]:hover { box-shadow:0 0 0 2px rgba(var(--brand-rgb),0.25), var(--shadow); }
+  .cc-kpi[onclick]:active { transform:scale(0.97); }
+  .cc-tabs button { white-space:nowrap; }
   .cc-tabs { display:flex; gap:4px; background:var(--white); border-radius:12px; padding:4px; box-shadow:var(--shadow); margin-bottom:14px; position:sticky; top:62px; z-index:50; overflow-x:auto; }
   .cc-tabs::-webkit-scrollbar { display:none; }
   .cc-tabs button { flex:1; border:none; background:none; padding:10px 8px; border-radius:9px; font-family:inherit; font-size:12px; font-weight:700; color:var(--dark-gray); cursor:pointer; white-space:nowrap; }
@@ -1133,10 +1141,14 @@ window.appliquerMarqueSplash(window.marqueInitiale());
   <select class="form-select" id="mgr-filter-magasin" onchange="filterMgrByMagasin(this.value)" style="flex:1;min-width:120px;font-size:12px;padding:8px 30px 8px 10px;display:none"><option value="">Tous magasins</option></select>
   <select class="form-select" id="mgr-filter-quiz" onchange="filterMgrByQuiz(this.value)" style="flex:1;min-width:120px;font-size:12px;padding:8px 30px 8px 10px;display:none"><option value="">Tous questionnaires</option></select>
 </div>
+    <div style="position:relative;margin-bottom:12px"><input class="form-input" id="cc-recherche" type="search" autocomplete="off" enterkeyhint="search" placeholder="&#128269; Rechercher un CDS, un magasin, une enseigne…" oninput="ccRecherche()" onkeydown="if(event.key==='Escape'){this.value='';ccRecherche();this.blur();}" style="width:100%"><div id="cc-recherche-res"></div></div>
     <div id="mgr-perimetre" style="display:none;border-radius:8px;padding:11px 13px;font-size:12px;line-height:1.5;margin-bottom:14px"></div>
     <div class="cc-tabs" id="cc-tabs">
       <button data-tab="vue" class="active" onclick="ccOnglet('vue')">📊 Vue d'ensemble</button>
       <button data-tab="cds" class="cc-mgr-only" onclick="ccOnglet('cds')">👥 CDS</button>
+      <button data-tab="mag" onclick="ccOnglet('mag')">🏪 Magasins</button>
+      <button data-tab="activite" class="cc-mgr-only" onclick="ccOnglet('activite')">📱 Activité</button>
+      <button data-tab="jeu" class="cc-mgr-only" onclick="ccOnglet('jeu')">🎮 Jeu</button>
       <button data-tab="rappels" class="cc-mgr-only" onclick="ccOnglet('rappels')">🔔 Rappels</button>
       <button data-tab="details" onclick="ccOnglet('details')">📋 Tableaux</button>
     </div>
@@ -1166,6 +1178,19 @@ window.appliquerMarqueSplash(window.marqueInitiale());
       </div>
       <details class="cc-acc cc-card" id="mgr-bloc-cds"><summary><span>📂 Détail des passages par CDS</span></summary><div class="cc-acc-body"><div id="mgr-table-cds"></div></div></details>
     </div>
+    <div class="cc-pane" data-pane="mag" style="display:none">
+      <div class="cc-grid">
+        <div class="cc-card"><div class="cc-title">Magasins les plus actifs <span class="cc-sub" style="margin-left:auto">touchez un magasin</span></div><div id="cc-mag-classement"></div></div>
+        <div class="cc-card" id="cc-mag-fiche-wrap"><div class="cc-title">Fiche d'un magasin</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <select class="form-select" id="cc-mag-ens" onchange="ccMagChoisirEns()" style="flex:1;min-width:120px"></select>
+            <select class="form-select" id="cc-mag-select" onchange="ccMagChoisir()" style="flex:2;min-width:160px"></select>
+          </div>
+          <div id="cc-mag-fiche"></div></div>
+      </div>
+    </div>
+    <div class="cc-pane" data-pane="activite" style="display:none"><div id="cc-activite"></div></div>
+    <div class="cc-pane" data-pane="jeu" style="display:none"><div id="cc-jeu"></div></div>
     <div class="cc-pane" data-pane="rappels" style="display:none">
       <div class="cc-card"><div class="cc-title">Rappels — qui a répondu <button class="btn-icon" onclick="ccChargerSuivi(true)" style="margin-left:auto;font-size:15px" title="Actualiser">&#128260;</button></div><div id="cc-rappels"></div></div>
     </div>
@@ -7605,32 +7630,12 @@ function renderMgrDashboard() {
       bandeau.textContent = 'Vous voyez vos enseignes : ' + perim.enseignes.join(', ') + '.';
     }
   }
-  // Build period filters
-  const months = [...new Set(myResults.map(r => {
-    const d = new Date(r.date);
-    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
-  }))].sort().reverse();
-
-  const periodOptions = [
-    {key:'all', label:'Tout'},
-    ...months.map(m => {
-      const [y, mo] = m.split('-');
-      return {key: m, label: new Date(y, mo-1).toLocaleDateString('fr-FR',{month:'short',year:'2-digit'})};
-    })
-  ];
-
-  document.getElementById('mgr-period-filters').innerHTML = periodOptions.map(p =>
-    `<div class="filter-chip ${mgrPeriod===p.key?'active':''}" onclick="setMgrPeriod('${p.key}')">${p.label}</div>`
-  ).join('');
-
-  // Filter by period
-  let filtered = mgrPeriod === 'all' ? myResults : myResults.filter(r => {
-    const d = new Date(r.date);
-    return (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')) === mgrPeriod;
-  });
+  // Périodes : 7 j, 30 j, ce mois, 3 mois, 12 mois, tout, ou un mois précis
+  ccRenderPeriodes(myResults);
+  let filtered = myResults.filter(r => ccDansPeriode(r.date));
 
   // Populate enseigne dropdown (from period-filtered data)
-  const enseignes = [...new Set(filtered.map(r => r.enseigne).filter(Boolean))].sort();
+  const enseignes = [...new Set(filtered.map(r => r.enseigne).concat(_mgrFilterEnseigne ? [_mgrFilterEnseigne] : []).filter(Boolean))].sort();
   const ensSelect = document.getElementById('mgr-filter-enseigne');
   ensSelect.innerHTML = '<option value="">Toutes enseignes</option>' + enseignes.map(e =>
     `<option value="${e}"${e===_mgrFilterEnseigne?' selected':''}>${e}</option>`
@@ -7729,11 +7734,7 @@ function renderMgrDashboard() {
   document.getElementById('mgr-vendeurs').textContent = Object.keys(vendeurs).length;
 
   var rapportsPeriode = rapportsStats().filter(function(rp) {
-    if (mgrPeriod !== 'all') {
-      var d = new Date(rp.date);
-      if (isNaN(d)) return false;
-      if ((d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')) !== mgrPeriod) return false;
-    }
+    if (!ccDansPeriode(rp.date)) return false;
     if (_mgrFilterEnseigne && rp.enseigne !== _mgrFilterEnseigne) return false;
     // Un referent ne compte que les rapports de ses enseignes
     if (!perim.tout && perim.enseignes.indexOf(rp.enseigne) === -1) return false;
@@ -7818,7 +7819,19 @@ var _ccSuivi = { sessions: [], logs: [], at: 0, loading: false };
 var CC_MOIS = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 
 function ccMoisCle(d) { d = new Date(d); return isNaN(d) ? '' : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
-function ccDansPeriode(date) { return mgrPeriod === 'all' || ccMoisCle(date) === mgrPeriod; }
+function ccDansPeriode(date) {
+  if (mgrPeriod === 'all') return true;
+  if (mgrPeriod === 'mois') return ccMoisCle(date) === ccMoisCle(new Date());
+  var p = /^(\d+)([jm])$/.exec(mgrPeriod);
+  if (p) {
+    var t = /^\d{4}-\d{2}-\d{2}$/.test(String(date)) ? new Date(date + 'T12:00:00').getTime() : new Date(date).getTime();
+    if (isNaN(t)) return false;
+    var n = Number(p[1]), now = new Date();
+    var lim = p[2] === 'j' ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - (n - 1)).getTime() : new Date(now.getFullYear(), now.getMonth() - (n - 1), 1).getTime();
+    return t >= lim;
+  }
+  return ccMoisCle(date) === mgrPeriod;
+}
 function ccPct(a, b) { return b ? Math.round(a / b * 100) : 0; }
 function ccCouleurTaux(t) { return t >= 70 ? 'var(--success)' : t >= 50 ? 'var(--warning)' : 'var(--brand)'; }
 function ccDepuis(ts) {
@@ -7849,11 +7862,16 @@ function ccChargerSuivi(force) {
     _ccSuivi.sessions = (d && d.sessions) || [];
     _ccSuivi.logs = (d && d.logs) || [];
     _ccSuivi.activite = (d && d.activite && typeof d.activite === 'object') ? d.activite : null;
+    _ccSuivi.activiteDetail = (d && d.activiteDetail && typeof d.activiteDetail === 'object') ? d.activiteDetail : null;
     _ccSuivi.at = Date.now();
   }).catch(function() {}).then(function() {
     _ccSuivi.loading = false;
     var a = document.querySelector('.screen.active');
-    if (a && a.id === 'screen-mgr-dashboard') { renderCCRappels(); renderFicheCDS(); renderCCKpis(); }
+    if (a && a.id === 'screen-mgr-dashboard') {
+      renderCCRappels(); renderFicheCDS(); renderCCKpis();
+      if (_ccOnglet === 'activite') ccRenderActivite();
+      if (_ccOnglet === 'mag') renderFicheMagasin();
+    }
   });
 }
 
@@ -7936,34 +7954,7 @@ function ccBarres(lignes, opts) {
   }).join('');
 }
 
-// ── KPI du haut ──
-function renderCCKpis() {
-  var el = document.getElementById('cc-kpis'); if (!el) return;
-  var f = _cc.filtered, total = f.length, ok = f.filter(function(r) { return r.passed; }).length;
-  var vend = {}, mag = {}, cds = {};
-  f.forEach(function(r) {
-    if (r.vendeur) vend[(r.magasin + '|' + r.vendeur).trim().toLowerCase()] = 1;
-    if (r.magasin) mag[r.magasin] = 1;
-    if (r.cds) cds[r.cds] = 1;
-  });
-  _cc.rapports.forEach(function(r) { if (r.cdsName) cds[r.cdsName] = 1; });
-  var nbCDS = ccComptesCDS().length;
-  var anomalies = (_ccSuivi.logs || []).filter(function(l) { return l.event === 'anomalie' && ccDansPeriode(l.ts); }).length;
-  var k = [
-    { v: total, l: 'Passages de quiz', i: '📝' },
-    { v: total ? ccPct(ok, total) + '%' : '—', l: 'Taux de réussite', i: '🎯', c: total ? ccCouleurTaux(ccPct(ok, total)) : '' },
-    { v: Object.keys(vend).length, l: 'Vendeurs formés', i: '👥' },
-    { v: Object.keys(mag).length, l: 'Magasins touchés', i: '🏪' },
-    { v: _cc.rapports.length, l: 'Rapports de visite' + rapportsSousTitre(_cc.perim), i: '📄' }
-  ];
-  if (_cc.perim && _cc.perim.tout) {
-    k.push({ v: Object.keys(cds).length + (nbCDS ? '/' + nbCDS : ''), l: 'CDS actifs', i: '⚡' });
-    if (_ccSuivi.at) k.push({ v: anomalies, l: 'Anomalies remontées', i: '🚩' });
-  }
-  el.innerHTML = k.map(function(x) {
-    return '<div class="cc-kpi"><div class="cc-kpi-i">' + x.i + '</div><div class="cc-kpi-v"' + (x.c ? ' style="color:' + x.c + '"' : '') + '>' + x.v + '</div><div class="cc-kpi-l">' + x.l + '</div></div>';
-  }).join('');
-}
+// ── KPI du haut : voir renderCCKpis dans le module v5.1 (fin du fichier) ──
 
 // ── Rendu général (appelé par renderMgrDashboard) ──
 function renderCentreControle(filtered, rapports, perim, allResults) {
@@ -7992,7 +7983,7 @@ function renderCentreControle(filtered, rapports, perim, allResults) {
   }).sort(function(a, b) { return b.v - a.v; }), { taux: true });
 
   document.querySelectorAll('#screen-mgr-dashboard .cc-mgr-only').forEach(function(e) { e.style.display = perim.tout ? '' : 'none'; });
-  if (!perim.tout && (_ccOnglet === 'cds' || _ccOnglet === 'rappels')) _ccOnglet = 'vue';
+  if (!perim.tout && ['cds', 'rappels', 'jeu', 'activite'].indexOf(_ccOnglet) !== -1) _ccOnglet = 'vue';
   ccOnglet(_ccOnglet);
   if (!perim.tout) return;
 
@@ -8022,6 +8013,10 @@ function renderCentreControle(filtered, rapports, perim, allResults) {
   renderCCRappels();
   renderFicheCDS();
   ccChargerSuivi(false);
+  ccChargerJeu('semaine').then(function() {
+    var a = document.querySelector('.screen.active');
+    if (a && a.id === 'screen-mgr-dashboard') renderCCKpis();
+  });
 }
 
 function ccOuvrirFiche(id) {
@@ -8094,7 +8089,7 @@ function renderFicheCDS() {
     '<div style="font-size:16px;font-weight:700">' + escHtml(acc.name) + '</div>' +
     '<div class="cc-sub">' + escHtml((acc.roles || []).map(roleLabel).join(' · ')) + (acc.sector ? ' · ' + escHtml(acc.sector) : '') + '</div>' +
     '<div class="cc-sub">Dernière activité : <b style="color:' + ((Date.now() - derniere) > 10 * 86400000 ? 'var(--brand)' : 'var(--success)') + '">' + ccDepuis(derniere) + '</b>' +
-    (sess ? ' · ' + escHtml(String(sess.version || '').split(' (')[0]) : '') + '</div></div></div>';
+    (sess ? ' · ' + escHtml(String(sess.version || '').split(' (')[0]) : '') + '</div></div>' + ccNavFleches('cds') + '</div>';
 
   h += '<div class="cc-mini-kpis">' + [
     [res.length, 'Quiz'], [res.length ? ccPct(ok, res.length) + '%' : '—', 'Réussite'], [Object.keys(vend).length, 'Vendeurs'],
@@ -8117,9 +8112,10 @@ function renderFicheCDS() {
     var outils = {}; lp.filter(function(l) { return l.event === 'lien-externe'; }).forEach(function(l) { var k = l.details || '?'; outils[k] = (outils[k] || 0) + 1; });
     var ua = sess ? String(sess.userAgent || '') : '';
     var appareil = !ua ? '—' : /iPhone|iPad/.test(ua) ? '📱 iPhone' : /Android/.test(ua) ? '📱 Android' : /Windows/.test(ua) ? '💻 PC Windows' : /Mac/.test(ua) ? '💻 Mac' : '💻 Ordinateur';
+    var evP = ccEvtsPeriode(acc);
     var u = '<div class="cc-mini-kpis">' + [
-      [nb('login'), 'Connexions'], [nb('app-open'), 'Ouvertures'], [Object.keys(jours).length, 'Jours actifs'],
-      [nb('lien-externe'), 'Outils ouverts'], [nb('quiz-done'), 'Quiz lancés'], [nb('js-error'), 'Erreurs']
+      [evP._connexions, 'Connexions'], [evP._jours, 'Jours actifs'], [evP['ecran'] || 0, 'Écrans vus'],
+      [(evP['lien-externe'] || 0) + (evP['tableur-ouvert'] || 0), 'Outils ouverts'], [evP['jeu'] || 0, 'Parties du jeu'], [nb('js-error'), 'Erreurs']
     ].map(function(x) { return '<div><b>' + x[0] + '</b><span>' + x[1] + '</span></div>'; }).join('') + '</div>';
     var cases = '';
     for (var i = 29; i >= 0; i--) {
@@ -8131,16 +8127,18 @@ function renderFicheCDS() {
     u += '<div class="cc-sub" style="margin:10px 0 6px">Présence sur les 30 derniers jours</div><div style="display:grid;grid-template-columns:repeat(15,1fr);gap:4px">' + cases + '</div>';
     u += '<div class="cc-ligne" style="margin-top:8px"><span>Appareil : <b>' + appareil + '</b>' + (sess ? ' · version ' + escHtml(String(sess.version || '—')) : '') + '</span></div>';
     if (sess) u += '<div class="cc-ligne"><span>Dernière connexion : <b>' + escHtml(formatDmDate(sess.lastLogin)) + '</b> · vu pour la dernière fois : <b>' + escHtml(formatDmDate(sess.lastSeen)) + '</b></span></div>';
+    var kev = Object.keys(evP).filter(function(k) { return k.charAt(0) !== '_' && evP[k]; }).sort(function(a, b) { return evP[b] - evP[a]; });
+    if (kev.length) u += '<div class="cc-sub" style="margin:10px 0 4px">Détail des actions · ' + escHtml(ccLibellePeriode()) + '</div>' + ccBarres(kev.map(function(k) { return { lbl: ccNomEvt(k), v: evP[k], col: 'var(--charcoal)' }; }));
     var ko = Object.keys(outils).sort(function(a, b) { return outils[b] - outils[a]; });
     if (ko.length) u += '<div class="cc-sub" style="margin:10px 0 4px">Outils ouverts</div>' + ccBarres(ko.map(function(k) { return { lbl: k, v: outils[k], col: 'var(--charcoal)' }; }));
-    h += ccVolet('usage', '📱 Utilisation de l\'appli', Object.keys(jours).length + ' j actifs', u);
+    h += ccVolet('usage', '📱 Utilisation de l\'appli', evP._jours + ' j actifs · ' + evP._connexions + ' connexions', u);
   }
 
   var pass = '';
   if (Object.keys(ens).length) pass += '<div class="cc-sub" style="margin-bottom:4px">Par enseigne</div>' + ccBarres(Object.keys(ens).map(function(k) { return { lbl: k, v: ens[k] }; }).sort(function(a, b) { return b.v - a.v; }));
   pass += res.length ? '<div class="cc-sub" style="margin:12px 0 4px">' + Math.min(15, res.length) + ' derniers sur ' + res.length + '</div><div class="cc-table-scroll"><table class="cc-table"><thead><tr><th>Date</th><th>Magasin</th><th>Vendeur</th><th>Questionnaire</th><th>Score</th></tr></thead><tbody>' +
     res.slice().sort(function(a, b) { return new Date(b.date) - new Date(a.date); }).slice(0, 15).map(function(r) {
-      return '<tr><td>' + new Date(r.date).toLocaleDateString('fr-FR') + '</td><td>' + escHtml(r.magasin) + '<div class="cc-sub">' + escHtml(r.enseigne) + '</div></td><td>' + escHtml(r.vendeur || '—') +
+      return '<tr><td>' + new Date(r.date).toLocaleDateString('fr-FR') + '</td><td style="cursor:pointer" onclick="ccOuvrirMagasin(' + ccMagIndex(ccCleMag(r.enseigne, r.magasin)) + ')"><span style="color:var(--brand);font-weight:600">' + escHtml(r.magasin) + '</span><div class="cc-sub">' + escHtml(r.enseigne) + '</div></td><td>' + escHtml(r.vendeur || '—') +
         '</td><td>' + escHtml(r.quizName) + '</td><td><span class="score-pill ' + (r.pct >= 70 ? 'high' : r.pct >= 50 ? 'mid' : 'low') + '">' + r.pct + '%</span></td></tr>';
     }).join('') + '</tbody></table></div>' : '<div class="cc-vide">Aucun passage sur la période</div>';
   h += ccVolet('quiz', '📝 Quiz passés', res.length, pass);
@@ -8167,11 +8165,13 @@ function renderFicheCDS() {
       Object.keys(cats).map(function(k) { return escHtml(k) + ' : ' + cats[k]; }).join(' · ') + '</span></div>');
   }
 
+  h += ccVolet('jeu', '🎮 Jeu de la semaine', '', ccJeuFiche(acc));
+
   var j = '';
   if (!_ccSuivi.at) j = '<div class="cc-vide">' + (navigator.onLine ? '⏳ Chargement…' : '📵 Hors ligne') + '</div>';
   else if (!logs.length) j = '<div class="cc-vide">Aucun événement enregistré</div>';
   else {
-    var noms = { 'login': '🔓 Connexion', 'logout': '🚪 Déconnexion', 'app-open': '📱 Ouverture', 'quiz-done': '📝 Quiz', 'rapport-created': '📄 Rapport',
+    var noms = { 'login': '🔓 Connexion', 'logout': '🚪 Déconnexion', 'app-open': '📱 Ouverture', 'app-resume': '↩️ Retour dans l\'appli', 'ecran': '🧭 Écran', 'jeu': '🎮 Jeu', 'quiz-done': '📝 Quiz', 'rapport-created': '📄 Rapport',
       'anomalie': '🚩 Anomalie', 'import-excel': '📥 Import Excel',
       'lien-externe': '🔗 Outil ouvert', 'js-error': '⚠️ Erreur', 'account-modified': '👤 Compte', 'promo-modified': '🎁 Promo', 'template-modified': '📋 Template' };
     messagesListe().forEach(function(m) { noms[msgEvenement(m)] = m.icone + ' ' + m.titre; });
@@ -8209,7 +8209,7 @@ function exportDashboardExcel() {
 
 function ccConstruireExport(X, style) {
   var f = _cc.filtered, raps = _cc.rapports, perim = _cc.perim || perimetreDashboard();
-  var periode = mgrPeriod === 'all' ? 'Toute la période' : (function() { var p = mgrPeriod.split('-'); return CC_MOIS[+p[1] - 1] + ' ' + p[0]; })();
+  var periode = ccLibellePeriode(mgrPeriod);
   var filtres = [_mgrFilterEnseigne && 'Enseigne : ' + _mgrFilterEnseigne, _mgrFilterMagasin && 'Magasin : ' + _mgrFilterMagasin, _mgrFilterQuiz && 'Questionnaire : ' + _mgrFilterQuiz].filter(Boolean).join(' · ') || 'Aucun';
   var wb = X.utils.book_new();
 
@@ -8300,7 +8300,7 @@ function ccConstruireExport(X, style) {
   showToast('📊 Export téléchargé');
 }
 
-function setMgrPeriod(p) { mgrPeriod = p; _mgrFilterEnseigne = ''; _mgrFilterMagasin = ''; _mgrFilterQuiz = ''; renderMgrDashboard(); }
+function setMgrPeriod(p) { mgrPeriod = p; _mgrFilterMagasin = ''; _mgrFilterQuiz = ''; renderMgrDashboard(); }
 
 function filterMgrByEnseigne(val) {
   _mgrFilterEnseigne = val;
@@ -8704,7 +8704,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.0.2';
+var APP_VERSION = 'v5.1.0';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -14102,5 +14102,856 @@ function rgChercher() {
     }).join('') + '</div>';
 }
 </script>
+<!-- ═══════ v5.1 — TABLEAU DE BORD DYNAMIQUE · FICHES CDS ET MAGASIN · JEU · ACTIVITÉ · COMPTE RENDU CONSOLIDÉ ═══════ -->
+<script>
+// ══════════════════════════════════════════════════════════
+// 1. JOURNAL D'ACTIVITÉ PLUS COMPLET
+//    • « app-resume » : retour dans l'appli après 20 min en arrière-plan
+//      (sur iPhone, l'appli n'est presque jamais relancée : « app-open » seul
+//      sous-estimait fortement les connexions)
+//    • « ecran » : écran consulté (une fois par écran et par demi-heure)
+// ══════════════════════════════════════════════════════════
+var CC_EVTS_CONNEXION = ['login', 'app-open', 'app-resume'];
+var _ccEcransVus = {}, _ccCacheDepuis = 0;
+(function() {
+  var _oseAct = onScreenEnter;
+  onScreenEnter = function(id) {
+    _oseAct(id);
+    try { ccNoterEcran(id); } catch (e) {}
+  };
+  document.addEventListener('visibilitychange', function() {
+    try {
+      if (document.visibilityState === 'hidden') { _ccCacheDepuis = Date.now(); return; }
+      if (currentAccount && _ccCacheDepuis && Date.now() - _ccCacheDepuis > 20 * 60000) {
+        logEvent('app-resume', 'retour après ' + Math.round((Date.now() - _ccCacheDepuis) / 60000) + ' min');
+        try { syncSession(false); } catch (e) {}
+      }
+      _ccCacheDepuis = 0;
+    } catch (e) {}
+  });
+})();
+function ccNoterEcran(id) {
+  if (!currentAccount || !id) return;
+  if (['screen-login', 'screen-home', 'screen-splash'].indexOf(id) !== -1) return;
+  var t = Date.now();
+  if (_ccEcransVus[id] && t - _ccEcransVus[id] < 30 * 60000) return;
+  _ccEcransVus[id] = t;
+  logEvent('ecran', String(id).replace(/^screen-/, ''));
+}
+
+// ══════════════════════════════════════════════════════════
+// 2. PÉRIODES DU TABLEAU DE BORD
+// ══════════════════════════════════════════════════════════
+var CC_PERIODES = [['7j', '7 jours'], ['30j', '30 jours'], ['mois', 'Ce mois'], ['3m', '3 mois'], ['12m', '12 mois'], ['all', 'Tout']];
+function ccLibellePeriode(p) {
+  p = p || mgrPeriod;
+  for (var i = 0; i < CC_PERIODES.length; i++) if (CC_PERIODES[i][0] === p) return p === 'all' ? 'Toute la période' : CC_PERIODES[i][1];
+  var m = /^(\d{4})-(\d{2})$/.exec(p);
+  return m ? CC_MOIS[+m[2] - 1] + ' ' + m[1] : p;
+}
+function ccRenderPeriodes(myResults) {
+  var el = document.getElementById('mgr-period-filters'); if (!el) return;
+  var mois = {};
+  (myResults || []).forEach(function(r) { var k = ccMoisCle(r.date); if (k) mois[k] = 1; });
+  rapportsStats().forEach(function(r) { var k = ccMoisCle(r.date); if (k) mois[k] = 1; });
+  var liste = Object.keys(mois).sort().reverse();
+  var estMois = /^\d{4}-\d{2}$/.test(mgrPeriod);
+  el.innerHTML = CC_PERIODES.map(function(p) {
+    return '<div class="filter-chip ' + (mgrPeriod === p[0] ? 'active' : '') + '" onclick="setMgrPeriod(\'' + p[0] + '\')">' + p[1] + '</div>';
+  }).join('') +
+    '<select class="form-select" onchange="if(this.value)setMgrPeriod(this.value)" style="width:auto;min-width:120px;font-size:12px;padding:6px 28px 6px 10px;margin:0 0 6px;' + (estMois ? 'border-color:var(--brand);color:var(--brand);font-weight:700' : '') + '">' +
+    '<option value="">Un mois…</option>' + liste.map(function(k) {
+      var p = k.split('-');
+      return '<option value="' + k + '"' + (k === mgrPeriod ? ' selected' : '') + '>' + CC_MOIS[+p[1] - 1] + ' ' + p[0] + '</option>';
+    }).join('') + '</select>';
+}
+
+// ══════════════════════════════════════════════════════════
+// 3. ACTIVITÉ : registre du serveur (complet) — détail par type d'action
+// ══════════════════════════════════════════════════════════
+// { 'AAAA-MM-JJ': { evenement: nombre } } pour un compte (registre Activite)
+function ccDetailDe(acc) {
+  var d = _ccSuivi.activiteDetail;
+  if (d && typeof d === 'object') return d[String(acc.id)] || {};
+  // Serveur plus ancien : reconstitué depuis le journal chargé
+  var out = {};
+  ccLogsDe(acc).forEach(function(l) {
+    var ev = String(l.event || '');
+    if (!ev || ev.indexOf('secu-') === 0 || ev === 'js-error') return;
+    var t = new Date(l.ts); if (isNaN(t)) return;
+    var k = jourLocal(t), j = out[k] = out[k] || {};
+    j[ev] = (j[ev] || 0) + 1;
+  });
+  return out;
+}
+// Totaux par type d'action sur la période du tableau de bord
+function ccEvtsPeriode(acc, test) {
+  var det = ccDetailDe(acc), tot = {}, jours = 0, actions = 0;
+  test = test || ccDansPeriode;
+  Object.keys(det).forEach(function(jr) {
+    if (!test(jr)) return;
+    var n = 0;
+    Object.keys(det[jr]).forEach(function(ev) { var v = Number(det[jr][ev]) || 0; tot[ev] = (tot[ev] || 0) + v; n += v; });
+    if (!n) {   // jour présent sans détail (avant v19.17) : on garde le total du registre
+      var p = ccPresenceDe(acc)[jr] || 0;
+      n = p; tot['(autres)'] = (tot['(autres)'] || 0) + p;
+    }
+    if (n) { jours++; actions += n; }
+  });
+  // Jours du registre sans détail du tout (historique avant v19.17)
+  var pres = ccPresenceDe(acc);
+  Object.keys(pres).forEach(function(jr) {
+    if (det[jr] || !test(jr) || !pres[jr]) return;
+    jours++; actions += pres[jr]; tot['(autres)'] = (tot['(autres)'] || 0) + pres[jr];
+  });
+  tot._jours = jours; tot._actions = actions;
+  tot._connexions = CC_EVTS_CONNEXION.reduce(function(s, ev) { return s + (tot[ev] || 0); }, 0);
+  return tot;
+}
+function ccDerniereActivite(acc) {
+  var m = 0;
+  var pres = ccPresenceDe(acc);
+  Object.keys(pres).forEach(function(jr) { if (pres[jr]) { var t = new Date(jr + 'T12:00:00').getTime(); if (t > m) m = t; } });
+  (_ccSuivi.sessions || []).forEach(function(s) { if (String(s.accountId) === String(acc.id)) { var t = new Date(s.lastSeen).getTime() || 0; if (t > m) m = t; } });
+  ccResultatsDe(acc, db.results || []).forEach(function(r) { var t = new Date(r.date).getTime() || 0; if (t > m) m = t; });
+  rapportsStats().forEach(function(r) { if (String(r.cdsId) === String(acc.id)) { var t = new Date(r.date).getTime() || 0; if (t > m) m = t; } });
+  return m;
+}
+var CC_NOMS_EVTS = { 'login': '🔓 Connexions (mot de passe)', 'app-open': '📱 Ouvertures de l\'appli', 'app-resume': '↩️ Retours dans l\'appli',
+  'ecran': '🧭 Écrans consultés', 'quiz-done': '📝 Quiz', 'rapport-created': '📄 Rapports', 'jeu': '🎮 Parties du jeu', 'anomalie': '🚩 Anomalies',
+  'lien-externe': '🔗 Outils ouverts', 'tableur-ouvert': '📑 Tableurs ouverts', 'tableur-saisie': '✍️ Saisies tableurs', 'logout': '🚪 Déconnexions',
+  'import-excel': '📥 Imports Excel', 'account-modified': '👤 Comptes modifiés', 'promo-modified': '🎁 Promos modifiées', 'template-modified': '📋 Templates modifiés',
+  '(autres)': '• Actions (avant le détail par type)' };
+function ccNomEvt(ev) {
+  if (CC_NOMS_EVTS[ev]) return CC_NOMS_EVTS[ev];
+  try { var m = messagesListe().filter(function(x) { return msgEvenement(x) === ev; })[0]; if (m) return (m.icone || '🔔') + ' ' + m.titre; } catch (e) {}
+  return ev;
+}
+
+// ══════════════════════════════════════════════════════════
+// 4. KPI CLIQUABLES
+// ══════════════════════════════════════════════════════════
+function renderCCKpis() {
+  var el = document.getElementById('cc-kpis'); if (!el) return;
+  var f = _cc.filtered, total = f.length, ok = f.filter(function(r) { return r.passed; }).length;
+  var vend = {}, mag = {};
+  f.forEach(function(r) {
+    if (r.vendeur) vend[(r.magasin + '|' + r.vendeur).trim().toLowerCase()] = 1;
+    if (r.magasin) mag[(r.enseigne + '|' + r.magasin).toLowerCase()] = 1;
+  });
+  _cc.rapports.forEach(function(r) { if (r.magasin) mag[(r.enseigne + '|' + r.magasin).toLowerCase()] = 1; });
+  var k = [
+    { v: total, l: 'Passages de quiz', i: '📝', go: "ccOnglet('details')" },
+    { v: total ? ccPct(ok, total) + '%' : '—', l: 'Taux de réussite', i: '🎯', c: total ? ccCouleurTaux(ccPct(ok, total)) : '', go: "ccOnglet('details')" },
+    { v: Object.keys(vend).length, l: 'Vendeurs formés', i: '👥', go: "ccOnglet('mag')" },
+    { v: Object.keys(mag).length, l: 'Magasins touchés', i: '🏪', go: "ccOnglet('mag')" },
+    { v: _cc.rapports.length, l: 'Rapports de visite' + rapportsSousTitre(_cc.perim), i: '📄', go: "ouvrirSynthese('dashboard')" }
+  ];
+  if (_cc.perim && _cc.perim.tout) {
+    var comptes = ccComptesCDS(), actifs = 0, cnx = 0, joursCds = 0;
+    comptes.forEach(function(a) {
+      var e = _ccSuivi.at ? ccEvtsPeriode(a) : { _jours: 0, _connexions: 0 };
+      cnx += e._connexions; joursCds += e._jours;
+      var actif = e._jours > 0 || ccResultatsDe(a, f).length > 0 || _cc.rapports.some(function(r) { return String(r.cdsId) === String(a.id); });
+      if (actif) actifs++;
+    });
+    k.push({ v: actifs + (comptes.length ? '/' + comptes.length : ''), l: 'CDS actifs', i: '⚡', go: "ccOnglet('activite')" });
+    if (_ccSuivi.at) {
+      k.push({ v: cnx, l: 'Connexions à l\'appli', i: '📱', go: "ccOnglet('activite')" });
+      k.push({ v: joursCds, l: 'Jours d\'activité (cumul CDS)', i: '📅', go: "ccOnglet('activite')" });
+      var anomalies = (_ccSuivi.logs || []).filter(function(l) { return l.event === 'anomalie' && ccDansPeriode(l.ts); }).length;
+      k.push({ v: anomalies, l: 'Anomalies remontées', i: '🚩', go: "ccOnglet('activite')" });
+    }
+    var js = _ccJeu.semaine && _ccJeu.semaine.stats;
+    if (js) {
+      var s0 = (js.semaines || [])[0];
+      k.push({ v: (s0 ? s0.joueurs : 0) + '/' + comptes.length, l: 'Joueurs du jeu cette semaine', i: '🎮', go: "ccOnglet('jeu')" });
+    }
+  }
+  el.innerHTML = k.map(function(x) {
+    return '<div class="cc-kpi"' + (x.go ? ' onclick="' + x.go + '" style="cursor:pointer"' : '') + '><div class="cc-kpi-i">' + x.i + '</div><div class="cc-kpi-v"' + (x.c ? ' style="color:' + x.c + '"' : '') + '>' + x.v + '</div><div class="cc-kpi-l">' + x.l + '</div></div>';
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════
+// 5. ONGLETS : chargement à la demande + mémoire de l'onglet
+// ══════════════════════════════════════════════════════════
+(function() {
+  var _ccOngletAvant = ccOnglet;
+  ccOnglet = function(t) {
+    _ccOngletAvant(t);
+    try {
+      if (t === 'mag') renderCCMagasins();
+      if (t === 'jeu') ccRenderJeu(_ccJeuPeriode);
+      if (t === 'activite') ccRenderActivite();
+      var tabs = document.getElementById('cc-tabs');
+      var b = tabs && tabs.querySelector('button[data-tab="' + t + '"]');
+      if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest', inline: 'center' });
+    } catch (e) { console.warn('onglet', t, e); }
+  };
+})();
+
+// ══════════════════════════════════════════════════════════
+// 6. RECHERCHE DANS LE TABLEAU DE BORD (CDS, magasin, enseigne)
+// ══════════════════════════════════════════════════════════
+var _ccRech = [];
+function ccRecherche() {
+  var inp = document.getElementById('cc-recherche'), zone = document.getElementById('cc-recherche-res');
+  if (!inp || !zone) return;
+  var q = rgNorm(inp.value);
+  _ccRech = [];
+  if (q.length < 2) { zone.innerHTML = ''; return; }
+  var mots = q.split(' ').filter(Boolean), perim = _cc.perim || perimetreDashboard(), items = [];
+  var add = function(ic, t, s, fn) { _ccRech.push(fn); items.push({ ic: ic, t: t, s: s, i: _ccRech.length - 1 }); };
+  if (perim.tout) (db.accounts || []).forEach(function(a) {
+    if (rgCorrespond(mots, a.name + ' ' + (a.sector || '') + ' ' + (a.username || ''))) add('👤', a.name, (a.sector || (a.roles || []).map(roleLabel).join(', ')), function() { ccOuvrirFiche(a.id); });
+  });
+  ccListeMagasins(perim).forEach(function(m) {
+    if (items.length < 40 && rgCorrespond(mots, m.name + ' ' + m.enseigne + ' ' + (m.secteur || ''))) add('🏪', m.name, m.enseigne + (m.secteur ? ' · ' + m.secteur : ''), function() { ccOuvrirMagasin(m.cle); });
+  });
+  var ens = {};
+  (db.enseignes || []).concat((db.pdvList || []).map(function(p) { return p.enseigne; })).forEach(function(e) { e = typeof e === 'object' ? e.name : e; if (e) ens[e] = 1; });
+  Object.keys(ens).forEach(function(e) {
+    if ((perim.tout || perim.enseignes.indexOf(e) !== -1) && rgCorrespond(mots, e)) add('🏢', e, 'Filtrer le tableau de bord sur cette enseigne', function() { filterMgrByEnseigne(e); });
+  });
+  if (!items.length) { zone.innerHTML = '<div class="cc-rech-box"><div class="cc-vide">Aucun résultat</div></div>'; return; }
+  zone.innerHTML = '<div class="cc-rech-box">' + items.slice(0, 12).map(function(it) {
+    return '<div class="cc-rech-item" onclick="ccRechGo(' + it.i + ')"><span>' + it.ic + '</span><div><b>' + escHtml(it.t) + '</b><small>' + escHtml(it.s || '') + '</small></div></div>';
+  }).join('') + (items.length > 12 ? '<div class="cc-sub" style="padding:6px 12px">+ ' + (items.length - 12) + ' autres — précisez la recherche</div>' : '') + '</div>';
+}
+function ccRechGo(i) {
+  var fn = _ccRech[i];
+  var inp = document.getElementById('cc-recherche'); if (inp) { inp.value = ''; inp.blur(); }
+  var z = document.getElementById('cc-recherche-res'); if (z) z.innerHTML = '';
+  if (fn) fn();
+}
+
+// ══════════════════════════════════════════════════════════
+// 7. FICHE MAGASIN
+// ══════════════════════════════════════════════════════════
+var _ccMagSel = '', _ccMagCles = [];
+function ccNormMag(s) { return rgNorm(s).replace(/[^a-z0-9]+/g, ' ').trim(); }
+function ccCleMag(ens, nom) { return ccNormMag(ens) + '|' + ccNormMag(nom); }
+// Magasins du périmètre : liste PDV + magasins rencontrés dans les quiz et rapports
+function ccListeMagasins(perim) {
+  perim = perim || _cc.perim || perimetreDashboard();
+  var vu = {}, out = [];
+  var ok = function(e) { return perim.tout || perim.enseignes.indexOf(e) !== -1; };
+  (db.pdvList || []).forEach(function(p) {
+    if (!p.name || !ok(p.enseigne)) return;
+    var c = ccCleMag(p.enseigne, p.name); if (vu[c]) return;
+    vu[c] = 1; out.push({ cle: c, name: p.name, enseigne: p.enseigne, secteur: p.secteur || '', pdv: p });
+  });
+  (db.results || []).concat(rapportsStats()).forEach(function(r) {
+    if (!r.magasin || !ok(r.enseigne)) return;
+    var c = ccCleMag(r.enseigne, r.magasin); if (vu[c]) return;
+    vu[c] = 1; out.push({ cle: c, name: r.magasin, enseigne: r.enseigne, secteur: r.sector || '', pdv: null });
+  });
+  return out.sort(function(a, b) { return String(a.enseigne).localeCompare(String(b.enseigne)) || String(a.name).localeCompare(String(b.name)); });
+}
+function ccMagIndex(cle) { var i = _ccMagCles.indexOf(cle); if (i === -1) { _ccMagCles.push(cle); i = _ccMagCles.length - 1; } return i; }
+function ccOuvrirMagasin(cle) {
+  if (typeof cle === 'number') cle = _ccMagCles[cle];
+  _ccMagSel = cle || '';
+  ccOnglet('mag');
+  var f = document.getElementById('cc-mag-fiche-wrap');
+  if (f) setTimeout(function() { f.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 50);
+}
+function ccMagChoisirEns() {
+  var e = document.getElementById('cc-mag-ens');
+  _ccMagSel = '';
+  renderCCMagasinsSelect(e ? e.value : '');
+  renderFicheMagasin();
+}
+function ccMagChoisir() {
+  var s = document.getElementById('cc-mag-select');
+  _ccMagSel = s ? s.value : '';
+  renderFicheMagasin();
+}
+function renderCCMagasinsSelect(ens) {
+  var perim = _cc.perim || perimetreDashboard(), liste = ccListeMagasins(perim);
+  var selE = document.getElementById('cc-mag-ens'), selM = document.getElementById('cc-mag-select');
+  if (!selE || !selM) return;
+  var cur = liste.filter(function(m) { return m.cle === _ccMagSel; })[0];
+  if (ens === undefined) ens = cur ? cur.enseigne : (selE.value || _mgrFilterEnseigne || '');
+  var enss = {}; liste.forEach(function(m) { enss[m.enseigne] = 1; });
+  selE.innerHTML = '<option value="">Toutes enseignes</option>' + Object.keys(enss).sort().map(function(e) { return '<option value="' + escHtml(e) + '"' + (e === ens ? ' selected' : '') + '>' + escHtml(e) + '</option>'; }).join('');
+  var l = liste.filter(function(m) { return !ens || m.enseigne === ens; });
+  selM.innerHTML = '<option value="">— Choisir un magasin (' + l.length + ') —</option>' + l.map(function(m) {
+    return '<option value="' + escHtml(m.cle) + '"' + (m.cle === _ccMagSel ? ' selected' : '') + '>' + escHtml(m.name) + (ens ? '' : ' — ' + escHtml(m.enseigne)) + (m.secteur ? ' · ' + escHtml(m.secteur) : '') + '</option>';
+  }).join('');
+}
+function ccDonneesMagasin(cle) {
+  var res = (db.results || []).filter(function(r) { return ccCleMag(r.enseigne, r.magasin) === cle; });
+  var raps = rapportsStats().filter(function(r) { return ccCleMag(r.enseigne, r.magasin) === cle; });
+  return { res: res, raps: raps };
+}
+// Classement des magasins + magasins sans activité
+function renderCCMagasins() {
+  renderCCMagasinsSelect();
+  var el = document.getElementById('cc-mag-classement');
+  if (el) {
+    var perim = _cc.perim || perimetreDashboard(), liste = ccListeMagasins(perim), idx = {};
+    liste.forEach(function(m) { idx[m.cle] = { m: m, q: 0, r: 0, vend: {}, der: 0 }; });
+    var noter = function(cle, t) { var o = idx[cle]; if (o && t > o.der) o.der = t; };
+    _cc.filtered.forEach(function(r) { var c = ccCleMag(r.enseigne, r.magasin), o = idx[c]; if (!o) return; o.q++; if (r.vendeur) o.vend[rgNorm(r.vendeur)] = 1; noter(c, new Date(r.date).getTime() || 0); });
+    _cc.rapports.forEach(function(r) { var c = ccCleMag(r.enseigne, r.magasin), o = idx[c]; if (!o) return; o.r++; noter(c, new Date(r.date).getTime() || 0); });
+    var tous = Object.keys(idx).map(function(k) { return idx[k]; }).filter(function(o) { return !_mgrFilterEnseigne || o.m.enseigne === _mgrFilterEnseigne; });
+    var actifs = tous.filter(function(o) { return o.q || o.r; }).sort(function(a, b) { return (b.q + b.r) - (a.q + a.r) || b.der - a.der; });
+    var inactifs = tous.filter(function(o) { return !o.q && !o.r && o.m.pdv && (!o.m.pdv.statut || o.m.pdv.statut === 'actif'); });
+    var h = '<div class="cc-sub" style="margin-bottom:8px">' + actifs.length + ' magasin(s) avec de l\'activité · ' + ccLibellePeriode() + (_mgrFilterEnseigne ? ' · ' + escHtml(_mgrFilterEnseigne) : '') + '</div>';
+    h += ccBarres(actifs.slice(0, 20).map(function(o) {
+      return { lbl: o.m.name, sub: o.m.enseigne + ' · ' + o.q + ' quiz · ' + Object.keys(o.vend).length + ' vend. · ' + o.r + ' rapport(s) · ' + ccDepuis(o.der), v: o.q + o.r,
+        click: 'ccOuvrirMagasin(' + ccMagIndex(o.m.cle) + ')' };
+    }));
+    if (actifs.length > 20) h += '<div class="cc-sub" style="padding:6px 0">+ ' + (actifs.length - 20) + ' autres — utilisez la recherche ou la liste à droite</div>';
+    if (inactifs.length) {
+      h += ccVolet('maginactifs', '😴 Sans activité sur la période', inactifs.length,
+        inactifs.slice(0, 80).map(function(o) {
+          return '<div class="cc-ligne" style="cursor:pointer" onclick="ccOuvrirMagasin(' + ccMagIndex(o.m.cle) + ')"><span>' + escHtml(o.m.name) + ' <span class="cc-sub">' + escHtml(o.m.enseigne) + (o.m.secteur ? ' · ' + escHtml(o.m.secteur) : '') + '</span></span><span>›</span></div>';
+        }).join('') + (inactifs.length > 80 ? '<div class="cc-sub" style="padding:6px 0">+ ' + (inactifs.length - 80) + ' autres</div>' : ''));
+    }
+    el.innerHTML = h;
+  }
+  renderFicheMagasin();
+}
+function renderFicheMagasin() {
+  var el = document.getElementById('cc-mag-fiche'); if (!el) return;
+  var perim = _cc.perim || perimetreDashboard();
+  var m = ccListeMagasins(perim).filter(function(x) { return x.cle === _ccMagSel; })[0];
+  if (!m) { el.innerHTML = '<div class="cc-vide">Choisissez un magasin dans la liste, la recherche ou le classement pour voir toute son activité</div>'; return; }
+  var sel = document.getElementById('cc-mag-select'); if (sel && sel.value !== m.cle) renderCCMagasinsSelect();
+  var d = ccDonneesMagasin(m.cle), tous = d.res, rapsTous = d.raps;
+  var res = tous.filter(function(r) { return ccDansPeriode(r.date); });
+  var raps = rapsTous.filter(function(r) { return ccDansPeriode(r.date); });
+  var ok = res.filter(function(r) { return r.passed; }).length;
+  var p = m.pdv || {};
+  var der = Math.max(tous.reduce(function(x, r) { return Math.max(x, new Date(r.date).getTime() || 0); }, 0), rapsTous.reduce(function(x, r) { return Math.max(x, new Date(r.date).getTime() || 0); }, 0));
+  var anomalies = (_ccSuivi.logs || []).filter(function(l) {
+    if (l.event !== 'anomalie') return false;
+    var pp = String(l.details || '').split(' — ');
+    return pp.length >= 2 && ccCleMag(pp[0], pp[1]) === m.cle;
+  });
+  var vend = {};
+  tous.forEach(function(r) {
+    if (!r.vendeur) return;
+    var k = rgNorm(r.vendeur), v = vend[k] = vend[k] || { nom: r.vendeur, n: 0, nP: 0, best: 0, dernier: null, quiz: {} };
+    if (new Date(r.date).getTime() >= (v.dernier ? new Date(v.dernier.date).getTime() : 0)) v.dernier = r;
+    v.n++; if (ccDansPeriode(r.date)) v.nP++; if (r.pct > v.best) v.best = r.pct; v.quiz[r.quizName] = 1;
+  });
+  var cdsSecteur = perim.tout && m.secteur ? (db.accounts || []).filter(function(a) { return (a.roles || []).indexOf('cds') !== -1 && a.sector === m.secteur; }) : [];
+  var cdsVenus = {}; tous.forEach(function(r) { if (r.cds) cdsVenus[String(r.cds).split(' — ')[0]] = 1; }); rapsTous.forEach(function(r) { if (r.cdsName) cdsVenus[r.cdsName] = 1; });
+
+  var h = '<div class="cc-fiche-tete"><div class="cc-avatar">🏪</div><div style="flex:1;min-width:0">' +
+    '<div style="font-size:16px;font-weight:700">' + escHtml(m.name) + '</div>' +
+    '<div class="cc-sub">' + escHtml(m.enseigne) + (m.secteur ? ' · ' + escHtml(m.secteur) : '') + (p.statut && p.statut !== 'actif' ? ' · <b style="color:var(--brand)">' + escHtml(p.statut) + '</b>' : '') + '</div>' +
+    '<div class="cc-sub">Dernière activité : <b style="color:' + (!der || (Date.now() - der) > 45 * 86400000 ? 'var(--brand)' : 'var(--success)') + '">' + ccDepuis(der) + '</b></div></div>' +
+    ccNavFleches('mag') + '</div>';
+  h += '<div class="cc-mini-kpis">' + [
+    [res.length, 'Quiz'], [res.length ? ccPct(ok, res.length) + '%' : '—', 'Réussite'], [Object.keys(vend).filter(function(k) { return vend[k].nP; }).length, 'Vendeurs'],
+    [raps.length, 'Rapports'], [Object.keys(cdsVenus).length, 'CDS venus'], [anomalies.length, 'Anomalies']
+  ].map(function(x) { return '<div><b>' + x[0] + '</b><span>' + x[1] + '</span></div>'; }).join('') + '</div>';
+
+  // Coordonnées et CDS du secteur
+  var co = '';
+  if (p.email) co += '<div class="cc-ligne"><span>✉️ <a href="mailto:' + escHtml(p.email) + '">' + escHtml(p.email) + '</a></span></div>';
+  if (p.email2) co += '<div class="cc-ligne"><span>✉️ <a href="mailto:' + escHtml(p.email2) + '">' + escHtml(p.email2) + '</a></span></div>';
+  if (p.commentaire) co += '<div class="cc-ligne"><span>💬 ' + escHtml(p.commentaire) + '</span></div>';
+  if (cdsSecteur.length) co += '<div class="cc-sub" style="margin:8px 0 4px">CDS du secteur</div>' + cdsSecteur.map(function(a) {
+    return '<div class="cc-ligne" style="cursor:pointer" onclick="ccOuvrirFiche(\'' + escHtml(String(a.id).replace(/'/g, '')) + '\')"><span>👤 <b>' + escHtml(a.name) + '</b></span><span>›</span></div>';
+  }).join('');
+  if (Object.keys(cdsVenus).length) co += '<div class="cc-sub" style="margin:8px 0 4px">Passés dans ce magasin</div><div class="cc-ligne"><span>' + Object.keys(cdsVenus).map(escHtml).join(' · ') + '</span></div>';
+  if (co) h += ccVolet('magco', '📇 Coordonnées et CDS', '', co, true);
+
+  h += ccVolet('magevol', '📈 Évolution sur 12 mois', '', ccChartMois(tous, rapsTous), true);
+
+  // Vendeurs
+  var vk = Object.keys(vend).sort(function(a, b) { return new Date(vend[b].dernier.date) - new Date(vend[a].dernier.date); });
+  h += ccVolet('magvend', '👥 Vendeurs formés', vk.length, vk.length ? '<div class="cc-table-scroll"><table class="cc-table"><thead><tr><th>Vendeur</th><th>Quiz</th><th>Meilleur</th><th>Dernier</th><th>Questionnaires</th></tr></thead><tbody>' +
+    vk.map(function(k) {
+      var v = vend[k], dr = v.dernier;
+      return '<tr><td><b>' + escHtml(v.nom) + '</b></td><td>' + v.n + '</td><td>' + v.best + '%</td><td><span class="score-pill ' + (dr.pct >= 70 ? 'high' : dr.pct >= 50 ? 'mid' : 'low') + '">' + dr.pct + '%</span><div class="cc-sub">' + new Date(dr.date).toLocaleDateString('fr-FR') + '</div></td><td class="cc-sub">' + Object.keys(v.quiz).map(escHtml).join(', ') + '</td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="cc-vide">Aucun vendeur enregistré</div>');
+
+  // Questionnaires : passés / jamais passés dans ce magasin
+  var parQ = {};
+  tous.forEach(function(r) { var o = parQ[r.quizName] = parQ[r.quizName] || { n: 0, ok: 0 }; o.n++; if (r.passed) o.ok++; });
+  var jamais = (db.quizzes || []).filter(function(q) { return !parQ[q.name]; });
+  h += ccVolet('magquiz', '📝 Questionnaires', Object.keys(parQ).length + '/' + (db.quizzes || []).length,
+    ccBarres(Object.keys(parQ).map(function(k) { return { lbl: k, sub: parQ[k].n + ' passage(s)', v: ccPct(parQ[k].ok, parQ[k].n) }; }).sort(function(a, b) { return b.v - a.v; }), { taux: true }) +
+    (jamais.length ? '<div class="cc-sub" style="margin:10px 0 4px">Jamais passés ici</div><div class="cc-ligne"><span>' + jamais.map(function(q) { return escHtml(q.name); }).join(' · ') + '</span></div>' : ''));
+
+  // Derniers passages
+  h += ccVolet('magpass', '🕘 Passages de la période', res.length, res.length ? '<div class="cc-table-scroll"><table class="cc-table"><thead><tr><th>Date</th><th>Vendeur</th><th>Questionnaire</th><th>CDS</th><th>Score</th></tr></thead><tbody>' +
+    res.slice().sort(function(a, b) { return new Date(b.date) - new Date(a.date); }).slice(0, 30).map(function(r) {
+      return '<tr><td>' + new Date(r.date).toLocaleDateString('fr-FR') + '</td><td>' + escHtml(r.vendeur || '—') + '</td><td>' + escHtml(r.quizName) + '</td><td>' + escHtml(String(r.cds || '').split(' — ')[0]) + '</td><td><span class="score-pill ' + (r.pct >= 70 ? 'high' : r.pct >= 50 ? 'mid' : 'low') + '">' + r.pct + '%</span></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="cc-vide">Aucun passage sur la période</div>');
+
+  // Rapports, avec les réponses dépliables
+  h += ccVolet('magrap', '📄 Rapports de visite', raps.length, raps.length ? raps.slice().sort(function(a, b) { return String(b.date).localeCompare(String(a.date)); }).map(function(r, i) {
+    var ans = (r.answers || []).filter(function(a) { return a && a.answer; });
+    return '<details class="cc-acc"><summary><span>' + escHtml(dateRapportFr(r.date)) + ' · ' + escHtml(r.cdsName || '') + ' · ' + escHtml(r.templateName || '') + '</span>' +
+      (r.supprime ? '<em>supprimé</em>' : '') + '</summary><div class="cc-acc-body">' +
+      (ans.length ? ans.map(function(a) { return '<div class="cc-ligne" style="display:block"><span class="cc-sub">' + escHtml(a.label) + '</span><div>' + escHtml(a.answer) + '</div></div>'; }).join('') : '<div class="cc-vide">' + (r.supprime ? 'Rapport supprimé : réponses consultables dans le compte rendu consolidé' : 'Pas de réponse détaillée') + '</div>') +
+      (r.docUrl ? '<a href="' + r.docUrl + '" target="_blank" rel="noopener" class="rapport-open-btn" style="margin-top:8px;display:inline-block">📄 Ouvrir le rapport</a>' : '') +
+      '</div></details>';
+  }).join('') : '<div class="cc-vide">Aucun rapport sur la période</div>');
+
+  if (anomalies.length) h += ccVolet('magano', '🚩 Anomalies remontées', anomalies.length, anomalies.map(function(l) {
+    return '<div class="cc-ligne"><span>' + escHtml(formatDmDate(l.ts)) + ' · ' + escHtml(l.name || '') + ' · ' + escHtml(String(l.details || '').split(' — ').slice(2).join(' — ')) + '</span></div>';
+  }).join(''));
+
+  // Promos en cours pour l'enseigne
+  var auj = jourLocal(new Date());
+  var promos = (db.promos || []).filter(function(pr) { return (!pr.enseignes || !pr.enseignes.length || pr.enseignes.indexOf(m.enseigne) !== -1) && (!pr.end || String(pr.end) >= auj) && (!pr.start || String(pr.start) <= auj); });
+  if (promos.length) h += ccVolet('magpromo', '🎁 Promos en cours (' + escHtml(m.enseigne) + ')', promos.length, promos.map(function(pr) {
+    return '<div class="cc-ligne"><span>' + escHtml(pr.name) + (pr.price ? ' · ' + escHtml(pr.price) : '') + '</span><span class="cc-sub">jusqu\'au ' + escHtml(dateRapportFr(pr.end)) + '</span></div>';
+  }).join(''));
+  el.innerHTML = h;
+}
+
+// Flèches « précédent / suivant » des fiches
+function ccNavFleches(type) {
+  return '<div style="display:flex;gap:4px;flex-shrink:0">' +
+    '<button class="btn-icon" title="Précédent" onclick="ccNaviguer(\'' + type + '\',-1)" style="font-size:18px">‹</button>' +
+    '<button class="btn-icon" title="Suivant" onclick="ccNaviguer(\'' + type + '\',1)" style="font-size:18px">›</button></div>';
+}
+function ccNaviguer(type, sens) {
+  if (type === 'mag') {
+    var sel = document.getElementById('cc-mag-select'); if (!sel) return;
+    var vals = [].slice.call(sel.options).map(function(o) { return o.value; }).filter(Boolean);
+    if (!vals.length) return;
+    var i = vals.indexOf(_ccMagSel);
+    _ccMagSel = vals[(i + sens + vals.length) % vals.length];
+    renderCCMagasinsSelect(); renderFicheMagasin();
+  } else {
+    var s = document.getElementById('cc-cds-select'); if (!s) return;
+    var v = [].slice.call(s.options).map(function(o) { return o.value; }).filter(Boolean);
+    if (!v.length) return;
+    var j = v.indexOf(s.value);
+    s.value = v[(j + sens + v.length) % v.length];
+    renderFicheCDS();
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// 8. JEU DE LA SEMAINE DANS LE TABLEAU DE BORD
+// ══════════════════════════════════════════════════════════
+var _ccJeu = {}, _ccJeuPeriode = 'semaine', _ccJeuCls = 'semaineCls';
+function ccChargerJeu(periode, force) {
+  var c = _ccJeu[periode];
+  if (c && c.loading) return c.promise;
+  if (c && !force && Date.now() - c.at < 5 * 60000) return Promise.resolve(c);
+  if (!navigator.onLine) return Promise.resolve(c || null);
+  var o = _ccJeu[periode] = c || {};
+  o.loading = true;
+  o.promise = Promise.all([
+    apiJsonp({ action: 'jeuStats', periode: periode }, { timeout: 30000, retries: 1 }),
+    o.etat && !force ? Promise.resolve(o.etat) : apiJsonp({ action: 'getJeu' }, { timeout: 20000, retries: 1 }).catch(function() { return null; })
+  ]).then(function(r) {
+    if (r[0] && r[0].status === 'ok') { o.stats = r[0]; o.at = Date.now(); }
+    if (r[1] && r[1].status === 'ok') o.etat = r[1];
+    o.loading = false;
+    return o;
+  }).catch(function() { o.loading = false; return o; });
+  return o.promise;
+}
+function ccRenderJeu(periode) {
+  _ccJeuPeriode = periode || _ccJeuPeriode;
+  var el = document.getElementById('cc-jeu'); if (!el) return;
+  var c = _ccJeu[_ccJeuPeriode];
+  if (!c || !c.stats) {
+    el.innerHTML = '<div class="cc-card"><div class="cc-vide">' + (navigator.onLine ? '⏳ Chargement des statistiques du jeu…' : '📵 Hors ligne — statistiques du jeu indisponibles') + '</div></div>';
+    ccChargerJeu(_ccJeuPeriode).then(function(o) {
+      if (o && o.stats && _ccOnglet === 'jeu') ccRenderJeu();
+      else if (_ccOnglet === 'jeu') el.innerHTML = '<div class="cc-card"><div class="cc-vide">⚠️ Statistiques du jeu indisponibles (Apps Script v19.17 déployé ?)</div></div>';
+    });
+    return;
+  }
+  var s = c.stats, et = c.etat || (_ccJeu.semaine && _ccJeu.semaine.etat) || null, comptes = ccComptesCDS();
+  var chip = function(p, lbl) { return '<div class="filter-chip ' + (p === _ccJeuPeriode ? 'active' : '') + '" onclick="ccRenderJeu(\'' + p + '\')">' + lbl + '</div>'; };
+  var s0 = (s.semaines || [])[0] || { joueurs: 0, ids: [] };
+  var h = '<div class="filter-bar" style="margin-bottom:12px">' + chip('semaine', 'Cette semaine') + chip('mois', 'Ce mois') + chip('tout', 'Depuis le début') +
+    '<button class="btn-icon" onclick="ccChargerJeu(_ccJeuPeriode,true).then(function(){ccRenderJeu()})" title="Actualiser" style="margin-left:auto">🔄</button></div>';
+  h += '<div class="cc-kpis">' + [
+    ['🎮', s.parties || 0, 'Parties jouées'],
+    ['👥', s0.joueurs + '/' + comptes.length, 'Joueurs cette semaine'],
+    ['🎯', (s.reussite || 0) + '%', 'Bonnes réponses'],
+    ['⏱️', jeuTemps(s.tempsMoyen || 0), 'Temps moyen / question'],
+    ['🔥', (s.joueurs || []).filter(function(j) { return (Number(j.serie) || 0) > 1; }).length, 'Joueurs en série']
+  ].map(function(x) { return '<div class="cc-kpi"><div class="cc-kpi-i">' + x[0] + '</div><div class="cc-kpi-v">' + x[1] + '</div><div class="cc-kpi-l">' + x[2] + '</div></div>'; }).join('') + '</div>';
+  h += '<div class="cc-grid">';
+  // Participation semaine par semaine
+  var sem = (s.semaines || []).slice(0, 12).reverse();
+  h += '<div class="cc-card"><div class="cc-title">Participation des 12 dernières semaines</div>' + (sem.length ? ccChartSemaines(sem, comptes.length) : '<div class="cc-vide">Pas encore de données</div>') + '</div>';
+  // Classement secteurs
+  if (et) {
+    var cls = et[_ccJeuCls] || [];
+    var b = function(k, l) { return '<div class="filter-chip ' + (k === _ccJeuCls ? 'active' : '') + '" onclick="_ccJeuCls=\'' + k + '\';ccRenderJeu()">' + l + '</div>'; };
+    h += '<div class="cc-card"><div class="cc-title">🏆 Classement des secteurs</div><div class="filter-bar" style="margin-bottom:8px">' + b('semaineCls', 'Semaine') + b('moisCls', 'Mois') + '</div>' +
+      (cls.length ? cls.map(function(x, i) {
+        return '<div class="cc-ligne"><span>' + (['🥇', '🥈', '🥉'][i] || (i + 1) + '.') + ' <b>' + escHtml(x.secteur) + '</b> <span class="cc-sub">' + x.joueurs + '/' + x.comptes + ' joueur(s)</span></span><b>' + x.points + ' pts</b></div>';
+      }).join('') : '<div class="cc-vide">Aucune partie sur la période</div>') +
+      (et.gagnantPrec ? '<div class="cc-sub" style="margin-top:8px">Semaine précédente : 🏅 <b>' + escHtml(et.gagnantPrec.secteur) + '</b> (' + et.gagnantPrec.points + ' pts)</div>' : '') + '</div>';
+  }
+  h += '</div>';
+  // Joueurs
+  var js = (s.joueurs || []).slice().sort(function(a, b) { return (b.points || 0) - (a.points || 0) || a.tempsQuestion - b.tempsQuestion; });
+  h += '<div class="cc-card"><div class="cc-title">👤 Joueurs <span class="cc-sub" style="margin-left:auto">touchez un nom</span></div>' + (js.length ? '<div class="cc-table-scroll"><table class="cc-table"><thead><tr><th>Joueur</th><th>Parties</th><th>Points</th><th>Réussite</th><th>Temps / q.</th><th>Série</th><th>Dernière</th></tr></thead><tbody>' +
+    js.map(function(j) {
+      var clic = j.compteId ? ' style="cursor:pointer" onclick="ccOuvrirFiche(\'' + escHtml(String(j.compteId).replace(/'/g, '')) + '\')"' : '';
+      return '<tr' + clic + '><td><b>' + escHtml(j.nom || '—') + '</b><div class="cc-sub">' + escHtml(j.secteur || '') + '</div></td><td>' + j.parties + '</td><td><b>' + (j.points || 0) + '</b></td><td style="color:' + ccCouleurTaux(j.reussite) + ';font-weight:700">' + j.reussite + '%</td><td>' + jeuTemps(j.tempsQuestion) + '</td><td>' + ((Number(j.serie) || 0) > 1 ? '🔥 ' + j.serie : (j.serie || '—')) + '</td><td class="cc-sub">' + escHtml(rgDateCourte(j.derniere || '')) + '</td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="cc-vide">Aucun joueur sur la période</div>');
+  // Pas encore joué cette semaine
+  var aJoue = {}; (s0.ids || []).forEach(function(id) { aJoue[String(id)] = 1; });
+  var pasJoue = comptes.filter(function(a) { return !aJoue[String(a.id)]; });
+  if (s.semaines) h += '<div class="cc-sub" style="margin:12px 0 4px">Pas encore joué cette semaine (' + pasJoue.length + ')</div><div class="cc-ligne"><span>' + (pasJoue.length ? pasJoue.map(function(a) { return '<a href="javascript:void(0)" onclick="ccOuvrirFiche(\'' + escHtml(String(a.id).replace(/'/g, '')) + '\')">' + escHtml(a.name) + '</a>'; }).join(' · ') : 'Tout le monde a joué 🎉') + '</span></div>';
+  h += '</div>';
+  // Questions les plus ratées
+  var qs = (s.questions || []).slice(0, 6);
+  h += '<div class="cc-card"><div class="cc-title">❓ Questions les plus ratées <button class="btn btn-ghost btn-sm" onclick="window._jeuOuvrirStats=\'' + _ccJeuPeriode + '\';goTo(\'screen-jeu\')" style="margin-left:auto;width:auto;padding:4px 8px;font-size:12px">Toutes →</button></div>' +
+    (qs.length ? ccBarres(qs.map(function(q) { return { lbl: q.q, sub: q.vus + ' réponse(s) · ' + jeuTemps(q.tempsMoyen) + (q.erreur ? ' · erreur fréquente : ' + q.erreur.texte : ''), v: q.reussite }; }), { taux: true }) : '<div class="cc-vide">Aucune question jouée</div>') + '</div>';
+  el.innerHTML = h;
+  renderCCKpis();
+}
+// Barres : joueurs par semaine (+ courbe de réussite)
+function ccChartSemaines(sem, nbComptes) {
+  var W = 420, H = 190, pl = 26, pr = 32, pt = 12, pb = 28, cw = (W - pl - pr) / sem.length;
+  var max = Math.max(nbComptes || 1, Math.max.apply(null, sem.map(function(x) { return x.joueurs; })), 1);
+  var y = function(v) { return pt + (H - pt - pb) * (1 - v / max); }, yt = function(t) { return pt + (H - pt - pb) * (1 - t / 100); };
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;font-family:Montserrat,sans-serif">';
+  [0, 0.5, 1].forEach(function(g) { var v = Math.round(max * g), yy = y(v);
+    s += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + yy + '" y2="' + yy + '" stroke="var(--beige)"/><text x="' + (pl - 6) + '" y="' + (yy + 3) + '" font-size="10" fill="var(--dark-gray)" text-anchor="end">' + v + '</text>' +
+      '<text x="' + (W - pr + 6) + '" y="' + (yt(g * 100) + 3) + '" font-size="10" fill="var(--success)">' + Math.round(g * 100) + '%</text>'; });
+  var pts = [];
+  sem.forEach(function(x, i) {
+    var xx = pl + i * cw, d = String(x.semaine || '').split('-');
+    s += '<rect x="' + (xx + cw * 0.2) + '" y="' + y(x.joueurs) + '" width="' + (cw * 0.6) + '" height="' + (H - pb - y(x.joueurs)) + '" rx="3" fill="var(--brand)"><title>Semaine du ' + (d[2] || '') + '/' + (d[1] || '') + ' : ' + x.joueurs + ' joueur(s), ' + x.reussite + '% de bonnes réponses</title></rect>';
+    s += '<text x="' + (xx + cw / 2) + '" y="' + (H - pb + 15) + '" font-size="9.5" fill="var(--dark-gray)" text-anchor="middle">' + (d[2] || '') + '/' + (d[1] || '') + '</text>';
+    if (x.joueurs) pts.push([xx + cw / 2, yt(x.reussite)]);
+  });
+  if (pts.length > 1) s += '<polyline points="' + pts.map(function(p) { return p[0] + ',' + p[1]; }).join(' ') + '" fill="none" stroke="var(--success)" stroke-width="2.5"/>';
+  s += '</svg><div class="cc-legende"><span><i style="background:var(--brand)"></i>Joueurs</span><span><i style="background:var(--success);height:3px"></i>Bonnes réponses</span></div>';
+  return s;
+}
+// Volet « Jeu » de la fiche CDS
+function ccJeuFiche(acc) {
+  var c = _ccJeu.tout;
+  if (!c || !c.stats) {
+    ccChargerJeu('tout').then(function(o) { if (o && o.stats && _ccOnglet === 'cds') renderFicheCDS(); });
+    return '<div class="cc-vide">' + (navigator.onLine ? '⏳ Chargement…' : '📵 Hors ligne') + '</div>';
+  }
+  var js = (c.stats.joueurs || []);
+  var j = js.filter(function(x) { return String(x.compteId) === String(acc.id); })[0];
+  if (!j) return '<div class="cc-vide">Aucune partie jouée</div>';
+  var rangV = js.slice().sort(function(a, b) { return a.tempsQuestion - b.tempsQuestion; }).indexOf(j) + 1;
+  var rangP = js.slice().sort(function(a, b) { return (b.points || 0) - (a.points || 0); }).indexOf(j) + 1;
+  var s0 = (c.stats.semaines || [])[0] || { ids: [] };
+  var cetteSemaine = (s0.ids || []).map(String).indexOf(String(acc.id)) !== -1;
+  return '<div class="cc-mini-kpis">' + [
+    [j.parties, 'Parties'], [j.points || 0, 'Points'], [j.reussite + '%', 'Réussite'],
+    [jeuTemps(j.tempsQuestion), 'Temps / q.'], [(Number(j.serie) || 0) > 1 ? '🔥 ' + j.serie : (j.serie || '—'), 'Série'], [rangP + '/' + js.length, 'Rang points']
+  ].map(function(x) { return '<div><b>' + x[0] + '</b><span>' + x[1] + '</span></div>'; }).join('') + '</div>' +
+    '<div class="cc-ligne"><span>Cette semaine : <b style="color:' + (cetteSemaine ? 'var(--success)">✓ a joué' : 'var(--brand)">✗ pas encore joué') + '</b> · rang vitesse : <b>' + rangV + '/' + js.length + '</b> · dernière partie : <b>' + escHtml(rgDateCourte(j.derniere || '') || '—') + '</b></span></div>';
+}
+
+// ══════════════════════════════════════════════════════════
+// 9. ONGLET ACTIVITÉ : connexions et utilisation, compte par compte
+// ══════════════════════════════════════════════════════════
+function ccRenderActivite() {
+  var el = document.getElementById('cc-activite'); if (!el) return;
+  if (!_ccSuivi.at) {
+    el.innerHTML = '<div class="cc-card"><div class="cc-vide">' + (navigator.onLine ? '⏳ Chargement de l\'activité…' : '📵 Hors ligne — activité indisponible') + '</div></div>';
+    ccChargerSuivi(true);
+    return;
+  }
+  var comptes = (db.accounts || []).filter(function(a) { return !((a.roles || []).length === 1 && a.roles[0] === 'manager'); })
+    .sort(function(a, b) { return String(a.name).localeCompare(String(b.name)); });
+  var totEv = {}, tot = { cnx: 0, jours: 0, actions: 0, actifs: 0 };
+  var lignes = comptes.map(function(a) {
+    var e = ccEvtsPeriode(a);
+    Object.keys(e).forEach(function(k) { if (k.charAt(0) !== '_') totEv[k] = (totEv[k] || 0) + e[k]; });
+    tot.cnx += e._connexions; tot.jours += e._jours; tot.actions += e._actions; if (e._actions) tot.actifs++;
+    var sess = (_ccSuivi.sessions || []).filter(function(s) { return String(s.accountId) === String(a.id); }).sort(function(x, y) { return String(y.lastSeen).localeCompare(String(x.lastSeen)); })[0];
+    var ua = sess ? String(sess.userAgent || '') : '';
+    var app = !ua ? '' : /iPhone|iPad/.test(ua) ? '📱' : /Android/.test(ua) ? '📱' : '💻';
+    return { a: a, e: e, der: ccDerniereActivite(a), app: app, version: sess ? String(sess.version || '').split(' (')[0] : '',
+      quiz: ccResultatsDe(a, (db.results || []).filter(function(r) { return ccDansPeriode(r.date); })).length,
+      rap: rapportsStats().filter(function(r) { return String(r.cdsId) === String(a.id) && ccDansPeriode(r.date); }).length };
+  });
+  var tri = _ccActTri;
+  lignes.sort(function(x, y) {
+    if (tri === 'nom') return String(x.a.name).localeCompare(String(y.a.name));
+    if (tri === 'der') return y.der - x.der;
+    if (tri === 'cnx') return y.e._connexions - x.e._connexions;
+    return y.e._jours - x.e._jours || y.e._actions - x.e._actions;
+  });
+  var h = '<div class="cc-kpis">' + [
+    ['📱', tot.cnx, 'Connexions à l\'appli'], ['⚡', tot.actifs + '/' + comptes.length, 'Comptes actifs'], ['📅', tot.jours, 'Jours d\'activité (cumul)'],
+    ['🧭', totEv['ecran'] || 0, 'Écrans consultés'], ['✋', tot.actions, 'Actions enregistrées']
+  ].map(function(x) { return '<div class="cc-kpi"><div class="cc-kpi-i">' + x[0] + '</div><div class="cc-kpi-v">' + x[1] + '</div><div class="cc-kpi-l">' + x[2] + '</div></div>'; }).join('') + '</div>';
+  var th = function(k, l) { return '<th style="cursor:pointer;white-space:nowrap" onclick="_ccActTri=\'' + k + '\';ccRenderActivite()">' + l + (tri === k ? ' ▾' : '') + '</th>'; };
+  h += '<div class="cc-card"><div class="cc-title">👥 Activité par compte · ' + escHtml(ccLibellePeriode()) + ' <button class="btn-icon" onclick="ccChargerSuivi(true)" title="Actualiser" style="margin-left:auto;font-size:15px">🔄</button></div>' +
+    '<div class="cc-table-scroll"><table class="cc-table"><thead><tr>' + th('nom', 'Compte') + th('der', 'Dernière activité') + th('jours', 'Jours actifs') + th('cnx', 'Connexions') +
+    '<th>Quiz</th><th>Rapports</th><th>Jeu</th><th>Écrans</th><th>Outils</th></tr></thead><tbody>' +
+    lignes.map(function(l) {
+      var vieux = !l.der || Date.now() - l.der > 10 * 86400000;
+      return '<tr style="cursor:pointer" onclick="ccOuvrirFiche(\'' + escHtml(String(l.a.id).replace(/'/g, '')) + '\')"><td><b>' + escHtml(l.a.name) + '</b><div class="cc-sub">' + escHtml(l.a.sector || (l.a.roles || []).map(roleLabel).join(', ')) + (l.version ? ' · ' + l.app + ' ' + escHtml(l.version) : '') + '</div></td>' +
+        '<td style="color:' + (vieux ? 'var(--brand)' : 'var(--success)') + ';font-weight:700;white-space:nowrap">' + ccDepuis(l.der) + '</td>' +
+        '<td><b>' + l.e._jours + '</b></td><td>' + l.e._connexions + '</td><td>' + l.quiz + '</td><td>' + l.rap + '</td><td>' + (l.e['jeu'] || 0) + '</td><td>' + (l.e['ecran'] || 0) + '</td><td>' + ((l.e['lien-externe'] || 0) + (l.e['tableur-ouvert'] || 0)) + '</td></tr>';
+    }).join('') + '</tbody></table></div>' +
+    '<div class="cc-sub" style="margin-top:8px">Connexions = ouvertures de l\'appli + retours dans l\'appli après 20 min + connexions avec mot de passe. Source : registre « Activite » du serveur (aucune ligne perdue).</div></div>';
+  // Carte de présence de l'équipe (30 derniers jours)
+  var jours = []; for (var i = 29; i >= 0; i--) { var d = new Date(); d.setDate(d.getDate() - i); jours.push(d); }
+  h += '<div class="cc-card"><div class="cc-title">🗓️ Présence de l\'équipe — 30 derniers jours</div><div class="cc-table-scroll"><div style="min-width:560px">' +
+    '<div style="display:grid;grid-template-columns:110px repeat(30,1fr);gap:3px;font-size:9px;color:var(--dark-gray);margin-bottom:3px"><span></span>' +
+    jours.map(function(d) { return '<span style="text-align:center' + (d.getDay() === 1 ? ';font-weight:800;color:var(--charcoal)' : '') + '">' + d.getDate() + '</span>'; }).join('') + '</div>' +
+    lignes.slice().sort(function(x, y) { return String(x.a.name).localeCompare(String(y.a.name)); }).map(function(l) {
+      var pres = ccPresenceDe(l.a);
+      return '<div style="display:grid;grid-template-columns:110px repeat(30,1fr);gap:3px;margin-bottom:3px;align-items:center;cursor:pointer" onclick="ccOuvrirFiche(\'' + escHtml(String(l.a.id).replace(/'/g, '')) + '\')">' +
+        '<span style="font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(l.a.name) + '</span>' +
+        jours.map(function(d) {
+          var n = pres[jourLocal(d)] || 0, we = d.getDay() === 0 || d.getDay() === 6;
+          var fond = !n ? (we ? 'var(--beige)' : 'var(--light-gray)') : n < 3 ? 'rgba(var(--brand-rgb),0.35)' : n < 8 ? 'rgba(var(--brand-rgb),0.65)' : 'var(--brand)';
+          return '<div title="' + escHtml(l.a.name) + ' — ' + d.toLocaleDateString('fr-FR') + ' : ' + n + ' action(s)" style="aspect-ratio:1;border-radius:3px;background:' + fond + '"></div>';
+        }).join('') + '</div>';
+    }).join('') + '</div></div></div>';
+  // Répartition par type d'action
+  var ks = Object.keys(totEv).filter(function(k) { return totEv[k]; }).sort(function(a, b) { return totEv[b] - totEv[a]; });
+  h += '<div class="cc-card"><div class="cc-title">📊 Ce qui est fait dans l\'appli · ' + escHtml(ccLibellePeriode()) + '</div>' +
+    (ks.length ? ccBarres(ks.map(function(k) { return { lbl: ccNomEvt(k), v: totEv[k], col: 'var(--charcoal)' }; })) : '<div class="cc-vide">Aucune action sur la période</div>');
+  var ecrans = {};
+  comptes.forEach(function(a) { ccLogsDe(a).forEach(function(l) { if (l.event === 'ecran' && ccDansPeriode(l.ts)) ecrans[l.details] = (ecrans[l.details] || 0) + 1; }); });
+  var ke = Object.keys(ecrans).sort(function(a, b) { return ecrans[b] - ecrans[a]; }).slice(0, 12);
+  if (ke.length) h += '<div class="cc-sub" style="margin:12px 0 4px">Écrans les plus consultés (journal chargé)</div>' + ccBarres(ke.map(function(k) { return { lbl: ccNomEcran(k), v: ecrans[k] }; }));
+  h += '</div>';
+  el.innerHTML = h;
+}
+var _ccActTri = 'jours';
+function ccNomEcran(id) {
+  try {
+    var el = document.getElementById('screen-' + id), t = el && el.querySelector('.topbar-title');
+    if (t && t.textContent.trim()) return t.textContent.trim();
+  } catch (e) {}
+  return id;
+}
+
+// ══════════════════════════════════════════════════════════
+// 10. COMPTE RENDU CONSOLIDÉ DES RAPPORTS
+//     Toutes les réponses des CDS à un même template, question par question :
+//     « Nom du CDS (magasin) : réponse ». Se met à jour à chaque nouveau rapport.
+//     Source : onglet SyntheseRapports du serveur (les rapports supprimés y restent) ;
+//     hors ligne : rapports présents sur le téléphone.
+// ══════════════════════════════════════════════════════════
+var _syn = { tpl: '', mois: '', secteur: '', vue: 'question', data: null, index: null, origine: 'screen-rapports', loading: false };
+function syntheseAutorise() { return !!currentAccount && (hasRole('manager') || hasRole('admin') || hasRole('referent')); }
+function synEnseignesAutorisees() {
+  if (hasRole('manager') || hasRole('admin')) return null;   // tout
+  return (currentAccount && currentAccount.enseignes) || [];
+}
+(function() {
+  var e = document.createElement('div');
+  e.className = 'screen'; e.id = 'screen-synthese';
+  e.innerHTML = '<div class="topbar"><button class="topbar-back" onclick="goTo(_syn.origine||\'screen-rapports\')">←</button>' +
+    '<span class="topbar-title">Compte rendu consolidé</span>' +
+    '<button class="btn-icon" onclick="synCharger(true)" title="Actualiser" style="font-size:18px">🔄</button></div>' +
+    '<div class="content" id="synthese-zone"></div>';
+  document.body.appendChild(e);
+  var _oseSyn = onScreenEnter;
+  onScreenEnter = function(id) {
+    _oseSyn(id);
+    if (id === 'screen-synthese') synAfficher();
+    if (id === 'screen-rapports' || id === 'screen-referent-rapports') synPoserBouton(id);
+  };
+})();
+function synPoserBouton(id) {
+  if (!syntheseAutorise()) return;
+  var cible = id === 'screen-rapports' ? document.getElementById('rapports-list-container') : document.getElementById('ref-rapports-list');
+  if (!cible || document.getElementById('btn-syn-' + id)) return;
+  cible.insertAdjacentHTML('beforebegin', '<button class="btn btn-secondary mb-12" id="btn-syn-' + id + '" onclick="ouvrirSynthese(\'' + id + '\')">🧩 Compte rendu consolidé (toutes les réponses par question)</button>');
+}
+function ouvrirSynthese(origine) {
+  if (!syntheseAutorise()) { goTo('screen-rapports'); return; }
+  _syn.origine = origine === 'dashboard' ? 'screen-mgr-dashboard' : (origine || 'screen-rapports');
+  if (origine === 'screen-referent-rapports' && typeof refFilterEnseigne !== 'undefined' && refFilterEnseigne) _syn.ens = refFilterEnseigne;
+  goTo('screen-synthese');
+}
+// Lignes locales (hors ligne) au même format que le serveur
+function synLignesLocales() {
+  var ok = synEnseignesAutorisees();
+  return (db.rapports || []).filter(function(r) { return !ok || ok.indexOf(r.enseigne) !== -1; }).map(function(r) {
+    var j = dateRapportISO(r.date);
+    return { id: r.id, templateId: r.templateId, templateName: r.templateName, enseigne: r.enseigne, mois: String(j).slice(0, 7), date: j,
+      cdsId: r.cdsId, cdsName: r.cdsName, magasin: r.magasin, answers: (r.answers || []).map(function(a) { return { fieldId: a.fieldId, label: a.label, type: a.type, answer: a.answer }; }) };
+  });
+}
+function synIndexDe(lignes) {
+  var idx = {};
+  lignes.forEach(function(l) {
+    var k = l.templateId + '|' + l.mois, o = idx[k] = idx[k] || { templateId: l.templateId, templateName: l.templateName, enseigne: l.enseigne, mois: l.mois, n: 0 };
+    o.n++;
+  });
+  return Object.keys(idx).map(function(k) { return idx[k]; });
+}
+function synCharger(force) {
+  var z = document.getElementById('synthese-zone');
+  if (!navigator.onLine) { _syn.data = synLignesLocales(); _syn.horsLigne = true; synRendu(); return; }
+  if (_syn.loading) return;
+  _syn.loading = true;
+  if (force && z) z.insertAdjacentHTML('afterbegin', '<div class="cc-sub" id="syn-maj" style="margin-bottom:8px">⏳ Mise à jour…</div>');
+  apiJsonp({ action: 'syntheseRapports' }, { timeout: 30000, retries: 2 }).then(function(r) {
+    if (!r || r.status !== 'ok' || !Array.isArray(r.lignes)) throw new Error((r && r.message) || 'réponse vide');
+    _syn.data = r.lignes; _syn.horsLigne = false; _syn.at = Date.now();
+    try { localStorage.setItem('focus_synthese_cache', JSON.stringify({ at: _syn.at, lignes: r.lignes })); } catch (e) {}
+  }).catch(function(e) {
+    var c = null; try { c = JSON.parse(localStorage.getItem('focus_synthese_cache') || 'null'); } catch (x) {}
+    _syn.data = c && c.lignes ? c.lignes : synLignesLocales();
+    _syn.horsLigne = true;
+    if (e && /role|autoris|403/i.test(String(e.message))) showToast('⛔ ' + e.message);
+  }).then(function() { _syn.loading = false; synRendu(); });
+}
+function synAfficher() {
+  var z = document.getElementById('synthese-zone'); if (!z) return;
+  if (!_syn.data) { _syn.data = synLignesLocales(); _syn.horsLigne = true; }
+  synRendu();
+  if (!_syn.at || Date.now() - _syn.at > 60000) synCharger(false);
+}
+function synLibMois(m) {
+  if (!m) return 'Toutes les périodes';
+  var p = String(m).split('-'); return p.length === 2 ? CC_MOIS[+p[1] - 1] + ' ' + p[0] : m;
+}
+function synChoix(k, v) { _syn[k] = v; if (k === 'tpl') { _syn.mois = _syn.moisAuto ? '' : _syn.mois; } synRendu(); }
+// Regroupe les lignes d'un template par question
+function synGrouper(lignes, tpl) {
+  var champs = [], parId = {}, parLib = {};
+  ((tpl && tpl.fields) || []).forEach(function(f) { var q = { id: f.id, label: f.label, type: f.type, reps: [] }; champs.push(q); parId[f.id] = q; parLib[rgNorm(f.label)] = q; });
+  lignes.slice().sort(function(a, b) { return String(a.cdsName).localeCompare(String(b.cdsName)) || String(a.date).localeCompare(String(b.date)); }).forEach(function(l) {
+    (l.answers || []).forEach(function(a) {
+      var q = parId[a.fieldId] || parLib[rgNorm(a.label)];
+      if (!q) { q = { id: a.fieldId || a.label, label: a.label, type: a.type, reps: [] }; champs.push(q); parId[q.id] = q; parLib[rgNorm(a.label)] = q; }
+      q.reps.push({ cds: l.cdsName, cdsId: l.cdsId, magasin: l.magasin, date: l.date, answer: String(a.answer || '').trim(), rapportId: l.id });
+    });
+  });
+  champs.forEach(function(q) {
+    q.compte = null;
+    if (q.type === 'yesno' || q.type === 'qcm') {
+      q.compte = {};
+      q.reps.forEach(function(r) { if (!r.answer) return; (q.type === 'qcm' ? r.answer.split(', ') : [r.answer]).forEach(function(v) { v = v.trim(); if (v) q.compte[v] = (q.compte[v] || 0) + 1; }); });
+    }
+  });
+  return champs.filter(function(q) { return q.reps.length; });
+}
+function synRendu() {
+  var z = document.getElementById('synthese-zone'); if (!z) return;
+  var lignes = _syn.data || [];
+  var index = synIndexDe(lignes);
+  var tpls = {};
+  index.forEach(function(o) { var t = tpls[o.templateId] = tpls[o.templateId] || { id: o.templateId, name: o.templateName, enseigne: o.enseigne, n: 0, mois: {} }; t.n += o.n; t.mois[o.mois] = (t.mois[o.mois] || 0) + o.n; if (o.templateName) t.name = o.templateName; });
+  var liste = Object.keys(tpls).map(function(k) { return tpls[k]; }).filter(function(t) { return !_syn.ens || t.enseigne === _syn.ens; })
+    .sort(function(a, b) { return String(a.enseigne).localeCompare(String(b.enseigne)) || String(a.name).localeCompare(String(b.name)); });
+  var h = '<div class="cc-sub" style="margin-bottom:10px;line-height:1.5">Toutes les réponses des CDS à un même modèle de rapport, question par question. Le compte rendu se complète tout seul à chaque nouveau rapport' +
+    (_syn.horsLigne ? ' · <b>hors connexion</b> : rapports présents sur ce téléphone' : '') + '.</div>';
+  if (!liste.length) { z.innerHTML = h + '<div class="empty-state"><div class="empty-state-icon">🧩</div><div class="empty-state-title">Aucun rapport à consolider</div></div>'; return; }
+  if (!tpls[_syn.tpl] || liste.indexOf(tpls[_syn.tpl]) === -1) { _syn.tpl = liste[0].id; _syn.mois = ''; }
+  var t = tpls[_syn.tpl];
+  var moisL = Object.keys(t.mois).filter(Boolean).sort().reverse();
+  if (_syn.mois && !t.mois[_syn.mois]) _syn.mois = '';
+  if (!_syn.moisChoisi && moisL.length && _syn.mois === '' && _syn.moisAuto !== false) { _syn.mois = moisL[0]; }
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">' +
+    '<select class="form-select" style="flex:2;min-width:180px" onchange="_syn.tpl=this.value;_syn.mois=\'\';_syn.moisChoisi=false;synRendu()">' + liste.map(function(x) {
+      return '<option value="' + escHtml(x.id) + '"' + (x.id === _syn.tpl ? ' selected' : '') + '>' + escHtml(x.enseigne) + ' — ' + escHtml(x.name) + ' (' + x.n + ')</option>';
+    }).join('') + '</select>' +
+    '<select class="form-select" style="flex:1;min-width:130px" onchange="_syn.mois=this.value;_syn.moisChoisi=true;synRendu()">' +
+      '<option value=""' + (!_syn.mois ? ' selected' : '') + '>Toutes les périodes</option>' + moisL.map(function(m) { return '<option value="' + m + '"' + (m === _syn.mois ? ' selected' : '') + '>' + synLibMois(m) + ' (' + t.mois[m] + ')</option>'; }).join('') + '</select></div>';
+  var sel = lignes.filter(function(l) { return l.templateId === _syn.tpl && (!_syn.mois || l.mois === _syn.mois); });
+  // Filtre secteur (manager / admin)
+  var secteurs = {};
+  var secDe = function(l) { var a = (db.accounts || []).filter(function(x) { return String(x.id) === String(l.cdsId); })[0]; return (a && a.sector) || ''; };
+  sel.forEach(function(l) { var s = secDe(l); if (s) secteurs[s] = 1; });
+  var ks = Object.keys(secteurs).sort();
+  if (ks.length > 1) {
+    h += '<div class="filter-bar" style="margin-bottom:10px"><div class="filter-chip ' + (!_syn.secteur ? 'active' : '') + '" onclick="_syn.secteur=\'\';synRendu()">Tous secteurs</div>' +
+      ks.map(function(s) { return '<div class="filter-chip ' + (_syn.secteur === s ? 'active' : '') + '" onclick="_syn.secteur=\'' + escHtml(s.replace(/'/g, '')) + '\';synRendu()">' + escHtml(s) + '</div>'; }).join('') + '</div>';
+    if (_syn.secteur) sel = sel.filter(function(l) { return secDe(l).replace(/'/g, '') === _syn.secteur; });
+  } else _syn.secteur = '';
+  var tplObj = (db.templates || []).filter(function(x) { return x.id === _syn.tpl; })[0];
+  var champs = synGrouper(sel, tplObj);
+  var cds = {}; sel.forEach(function(l) { cds[l.cdsName] = 1; });
+  var magasins = {}; sel.forEach(function(l) { magasins[l.magasin] = 1; });
+  h += '<div class="cc-card" style="padding:14px 16px"><div style="font-size:15px;font-weight:800">' + escHtml(t.name) + '</div>' +
+    '<div class="cc-sub" style="margin-top:2px">' + escHtml(t.enseigne) + ' · ' + escHtml(synLibMois(_syn.mois)) + (_syn.secteur ? ' · ' + escHtml(_syn.secteur) : '') + '</div>' +
+    '<div class="cc-mini-kpis" style="margin-top:10px">' + [[sel.length, 'Rapports'], [Object.keys(cds).length, 'CDS'], [Object.keys(magasins).length, 'Magasins']].map(function(x) { return '<div><b>' + x[0] + '</b><span>' + x[1] + '</span></div>'; }).join('') + '</div>' +
+    '<div class="cc-sub" style="margin-top:6px">Contributeurs : ' + Object.keys(cds).sort().map(escHtml).join(', ') + '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">' +
+      '<button class="btn btn-primary btn-sm" style="width:auto" onclick="synOuvrirDoc()">📄 Google Doc (mis à jour automatiquement)</button>' +
+      '<button class="btn btn-secondary btn-sm" style="width:auto" onclick="synCopier()">📋 Copier le texte</button>' +
+      '<button class="btn btn-secondary btn-sm" style="width:auto" onclick="synVue(\'' + (_syn.vue === 'question' ? 'cds' : 'question') + '\')">' + (_syn.vue === 'question' ? '👤 Voir par CDS' : '❓ Voir par question') + '</button>' +
+    '</div></div>';
+  if (_syn.vue === 'cds') {
+    h += sel.slice().sort(function(a, b) { return String(a.cdsName).localeCompare(String(b.cdsName)) || String(b.date).localeCompare(String(a.date)); }).map(function(l) {
+      return '<details class="cc-acc cc-card" style="margin-bottom:8px"><summary><span>👤 ' + escHtml(l.cdsName) + ' — ' + escHtml(l.magasin) + '</span><em>' + escHtml(dateRapportFr(l.date)) + '</em></summary><div class="cc-acc-body">' +
+        (l.answers || []).map(function(a) { return '<div class="cc-ligne" style="display:block"><span class="cc-sub">' + escHtml(a.label) + '</span><div>' + (a.answer ? escHtml(a.answer) : '<i class="cc-sub">non renseigné</i>') + '</div></div>'; }).join('') + '</div></details>';
+    }).join('');
+  } else {
+    h += champs.map(function(q, i) {
+      var remplies = q.reps.filter(function(r) { return r.answer; }), vides = q.reps.filter(function(r) { return !r.answer; });
+      var resume = '';
+      if (q.compte && Object.keys(q.compte).length) {
+        var tot = remplies.length || 1;
+        resume = '<div style="margin:4px 0 10px">' + ccBarres(Object.keys(q.compte).sort(function(a, b) { return q.compte[b] - q.compte[a]; }).map(function(k) {
+          return { lbl: k, sub: q.compte[k] + ' / ' + remplies.length, v: Math.round(q.compte[k] / tot * 100), col: k === 'Non' ? 'var(--brand)' : k === 'Oui' ? 'var(--success)' : 'var(--charcoal)' };
+        }), {}).replace(/<div class="cc-barre-val">(\d+)<\/div>/g, '<div class="cc-barre-val">$1%</div>') + '</div>';
+      }
+      return '<div class="cc-card" style="margin-bottom:10px"><div class="cc-title" style="margin-bottom:8px">' + (i + 1) + '. ' + escHtml(q.label) + '</div>' + resume +
+        remplies.map(function(r) {
+          return '<div style="padding:7px 0;border-top:1px solid var(--light-gray);font-size:13px;line-height:1.5"><b>' + escHtml(r.cds) + '</b> <span class="cc-sub">(' + escHtml(r.magasin) + ' · ' + escHtml(rgDateCourte(r.date)) + ')</span> : ' +
+            escHtml(r.answer).replace(/\n/g, '<br>') + '</div>';
+        }).join('') +
+        (vides.length ? '<div class="cc-sub" style="padding-top:6px;border-top:1px solid var(--light-gray)">Sans réponse : ' + vides.map(function(r) { return escHtml(r.cds); }).join(', ') + '</div>' : '') +
+        '</div>';
+    }).join('') || '<div class="cc-vide">Aucune réponse sur cette période</div>';
+  }
+  z.innerHTML = h;
+}
+function synVue(v) { _syn.vue = v; synRendu(); }
+function synTexte() {
+  var lignes = (_syn.data || []).filter(function(l) { return l.templateId === _syn.tpl && (!_syn.mois || l.mois === _syn.mois); });
+  var tplObj = (db.templates || []).filter(function(x) { return x.id === _syn.tpl; })[0];
+  var nom = lignes[0] ? lignes[0].templateName : '';
+  var out = ['COMPTE RENDU CONSOLIDÉ — ' + nom + ' — ' + (lignes[0] ? lignes[0].enseigne : '') + ' — ' + synLibMois(_syn.mois), lignes.length + ' rapport(s)', ''];
+  synGrouper(lignes, tplObj).forEach(function(q, i) {
+    out.push((i + 1) + '. ' + q.label);
+    if (q.compte && Object.keys(q.compte).length) out.push('   ' + Object.keys(q.compte).map(function(k) { return k + ' : ' + q.compte[k]; }).join(' · '));
+    q.reps.forEach(function(r) { if (r.answer) out.push('   • ' + r.cds + ' (' + r.magasin + ') : ' + r.answer.replace(/\n/g, ' ')); });
+    out.push('');
+  });
+  return out.join('\n');
+}
+function synCopier() {
+  var t = synTexte();
+  var fin = function() { showToast('📋 Compte rendu copié'); };
+  try { navigator.clipboard.writeText(t).then(fin, function() { synCopierSecours(t); fin(); }); } catch (e) { synCopierSecours(t); fin(); }
+}
+function synCopierSecours(t) {
+  var ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) {} ta.remove();
+}
+function synOuvrirDoc() {
+  if (!navigator.onLine) { showToast('⚠️ Connexion requise pour le Google Doc'); return; }
+  var w = null;
+  try { w = window.open('', '_blank'); if (w) w.document.write('<p style="font-family:sans-serif;padding:20px">Préparation du compte rendu…</p>'); } catch (e) { w = null; }
+  showToast('⏳ Mise à jour du Google Doc…');
+  apiPostJSON({ action: 'syntheseDoc', templateId: _syn.tpl, mois: _syn.mois || '' }).then(function(r) {
+    if (r && r.status === 'ok' && r.docUrl) {
+      if (w) w.location.href = r.docUrl; else window.open(r.docUrl, '_blank');
+      showToast('✅ Compte rendu à jour (' + (r.nb || 0) + ' rapports)');
+    } else {
+      if (w) w.close();
+      showToast('⚠️ ' + ((r && r.message) || 'Échec — Apps Script v19.17 déployé ?'));
+    }
+  }).catch(function() { if (w) w.close(); showToast('⚠️ Échec réseau'); });
+}
+</script>
+
 </body>
 </html>
