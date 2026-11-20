@@ -12635,6 +12635,132 @@ function plvSaveAdr() {
   }).catch(function() { showToast('⚠️ Échec réseau'); });
 }
 
+// ── Analyse du catalogue PDF → section + ordre automatiques ──
+var _plvScan = null, _plvPdfJsP = null;
+function plvPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_plvPdfJsP) return _plvPdfJsP;
+  _plvPdfJsP = new Promise(function(resolve, reject) {
+    var sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    sc.onload = function() {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve(window.pdfjsLib);
+    };
+    sc.onerror = function() { _plvPdfJsP = null; reject(new Error('lecteur PDF indisponible (hors ligne ?)')); };
+    document.head.appendChild(sc);
+  });
+  return _plvPdfJsP;
+}
+function plvNormCode(s) { return String(s == null ? '' : s).toUpperCase().replace(/\s+/g, ''); }
+function plvPageTitle(pg) {
+  var lines = {};
+  pg.items.forEach(function(it) {
+    if (!it.str || !it.str.trim()) return;
+    var k = Math.round(it.transform[5] / 4), fs = Math.abs(it.transform[3]) || it.height || 0;
+    var L = lines[k] || (lines[k] = { y: it.transform[5], fs: 0, parts: [] });
+    L.fs = Math.max(L.fs, fs); L.parts.push({ x: it.transform[4], w: it.width || 0, s: it.str });
+  });
+  var best = null;
+  Object.keys(lines).forEach(function(k) {
+    var L = lines[k], t = '', end = null;
+    L.parts.sort(function(a, b) { return a.x - b.x; }).forEach(function(p) {
+      if (end !== null && p.x - end > L.fs * 0.2 && !/\s$/.test(t) && !/^\s/.test(p.s)) t += ' ';
+      t += p.s; end = p.x + p.w;
+    });
+    t = t.replace(/\s+/g, ' ').trim();
+    if (t.replace(/[^A-Za-zÀ-ÿ]/g, '').length < 3) return;
+    if (/confidential|^stock|^code\b|^format\b|^poids|^\d{1,2}\/\d{1,2}\/\d{2,4}/i.test(t)) return;
+    if (!best || L.fs > best.fs + 0.5 || (Math.abs(L.fs - best.fs) <= 0.5 && L.y > best.y)) best = { fs: L.fs, y: L.y, t: t };
+  });
+  return best ? best.t.toUpperCase() : '';
+}
+function plvScanPages(pages, cat, plv) {
+  var found = {}, out = [], unknown = {}, known = {};
+  plv.forEach(function(p) { known[plvNormCode(p.code)] = 1; });
+  pages.forEach(function(pg) {
+    var items = pg.items.filter(function(it) { return it.str && it.str.trim(); });
+    var flat = ' ' + items.map(function(it) { return it.str.toUpperCase(); }).join(' ') + ' ';
+    var hits = [], band = (pg.h || 600) * 0.08;
+    plv.forEach(function(p) {
+      var c = plvNormCode(p.code); if (!c || found[c]) return;
+      var re = new RegExp('(^|[^A-Z0-9])' + c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
+      var pos = null;
+      items.some(function(it) { if (re.test(it.str.toUpperCase())) { pos = it.transform; return true; } });
+      if (!pos && !re.test(flat)) return;
+      hits.push({ code: p.code, nom: p.nom, sec: p.section || '', row: pos ? Math.round((pg.h - pos[5]) / band) : 999, x: pos ? pos[4] : 0 });
+      found[c] = pg.num;
+    });
+    var m, rc = /CODE\s*:?\s*([A-Z0-9]{5,})/g;
+    while ((m = rc.exec(flat))) if (!known[m[1]]) unknown[m[1]] = 1;
+    if (!hits.length) return;
+    hits.sort(function(a, b) { return a.row - b.row || a.x - b.x; });
+    var cnt = {}, actuel = '';
+    hits.forEach(function(h) { if (h.sec) { cnt[h.sec] = (cnt[h.sec] || 0) + 1; if (!actuel || cnt[h.sec] > cnt[actuel]) actuel = h.sec; } });
+    out.push({ num: pg.num, title: plvPageTitle(pg), actuel: actuel, hits: hits });
+  });
+  return { cat: cat, pages: out, found: found, unknown: Object.keys(unknown),
+    missing: plv.filter(function(p) { return !found[plvNormCode(p.code)]; }) };
+}
+function plvScanPdf(file, cat) {
+  plvPdfJs().then(function(lib) { return file.arrayBuffer().then(function(buf) { return lib.getDocument({ data: new Uint8Array(buf) }).promise; }); })
+  .then(function(pdf) {
+    var jobs = [];
+    for (var i = 1; i <= pdf.numPages; i++) jobs.push(pdf.getPage(i).then(function(pg) {
+      return pg.getTextContent().then(function(tc) { return { num: pg.pageNumber, h: pg.view[3], items: tc.items }; });
+    }));
+    return Promise.all(jobs);
+  }).then(function(pages) {
+    _plvScan = plvScanPages(pages, cat, plvData().plv.filter(function(p) { return p.categorie === cat; }));
+    renderPlvAdmin();
+    var el = document.getElementById('plv-scan'); if (el) el.scrollIntoView({ behavior: 'smooth' });
+  }).catch(function(err) { showToast('⚠️ Analyse PDF : ' + (err && err.message ? err.message : 'échec')); });
+}
+function plvScanTitle(n, v) { if (_plvScan) _plvScan.pages.forEach(function(pg) { if (pg.num === n) pg.title = v; }); }
+function plvScanHtml() {
+  var s = _plvScan; if (!s) return '';
+  var nb = Object.keys(s.found).length, actives = s.missing.filter(function(p) { return !plvOff(p); });
+  var h = '<div id="plv-scan" style="border:2px solid var(--brand);border-radius:12px;padding:12px;margin:12px 0;background:var(--white)">' +
+    '<div style="font-weight:700">🔎 Analyse du PDF ' + escHtml(s.cat) + '</div>' +
+    '<div style="font-size:12px;color:var(--dark-gray);margin:4px 0 10px">' + nb + ' PLV reconnue(s). Corrige les titres si besoin : section = « TITRE - PAGE N » (pages qui se suivent avec le même titre regroupées).</div>';
+  s.pages.forEach(function(pg) {
+    h += '<div class="form-group" style="margin-bottom:10px"><label class="form-label">Page ' + pg.num + ' · ' + pg.hits.length + ' PLV</label>' +
+      '<input class="form-input" value="' + escHtml(pg.title) + '" placeholder="Titre de la page" oninput="plvScanTitle(' + pg.num + ',this.value)">' +
+      '<div style="font-size:11px;color:var(--dark-gray);margin-top:3px">' + escHtml(pg.hits.map(function(x) { return x.nom; }).join(' · ')) +
+      (pg.actuel ? '<br>Actuellement : ' + escHtml(pg.actuel) : '') + '</div></div>';
+  });
+  if (actives.length) h += '<div style="font-size:12px;font-weight:700;margin-top:8px;color:var(--brand)">⚠️ Dans l\'appli mais pas dans le PDF (' + actives.length + ') — section inchangée, placées en fin de liste</div>' +
+    '<div style="font-size:11px;color:var(--dark-gray)">' + escHtml(actives.map(function(p) { return p.code + ' — ' + p.nom; }).join(' · ')) + '</div>';
+  if (s.unknown.length) h += '<div style="font-size:12px;font-weight:700;margin-top:8px">🆕 Codes du PDF inconnus de l\'appli (' + s.unknown.length + ')</div>' +
+    '<div style="font-size:11px;color:var(--dark-gray)">' + escHtml(s.unknown.join(' · ')) + '</div>';
+  h += '<div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-secondary" onclick="_plvScan=null;renderPlvAdmin()">Ignorer</button>' +
+    '<button class="btn btn-primary" onclick="plvScanApply()"' + (nb ? '' : ' disabled') + '>✅ Appliquer</button></div></div>';
+  return h;
+}
+function plvScanApply() {
+  var s = _plvScan; if (!s) return;
+  var prev = null, n = 0;
+  s.pages.forEach(function(pg) {
+    var t = String(pg.title || '').trim().toUpperCase() || s.cat;
+    if (prev && prev.t === t && pg.num === prev.last + 1) { prev.nums.push(pg.num); prev.last = pg.num; }
+    else prev = { t: t, nums: [pg.num], last: pg.num };
+    pg.g = prev;
+  });
+  s.pages.forEach(function(pg) {
+    var sec = pg.g.t + ' - ' + (pg.g.nums.length > 1 ? 'PAGES ' + pg.g.nums.join('/') : 'PAGE ' + pg.g.nums[0]);
+    pg.hits.forEach(function(x, i) {
+      var p = plvFind(s.cat + '|' + x.code); if (!p) return;
+      p.section = sec; p.ordre = pg.num * 1000 + i + 1; n++;
+    });
+  });
+  plvData().plv.forEach(function(p) {
+    if (p.categorie === s.cat && !s.found[plvNormCode(p.code)] && (+p.ordre || 0) < 900000) p.ordre = 900000 + (+p.ordre || 0);
+  });
+  _plvScan = null; _plvAdminCat = s.cat;
+  plvSaveCatalogue('✅ ' + n + ' PLV rangées depuis le PDF');
+}
+
+
 // ── Catalogues PDF (manager) ──
 function plvPickPdf(cat) { _plvPdfCat = cat; document.getElementById('plv-pdf-input').click(); }
 function plvUploadPdf(input) {
@@ -12643,6 +12769,7 @@ function plvUploadPdf(input) {
   if (!file || !cat) return;
   if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) { showToast('❌ Seuls les PDF sont acceptés'); return; }
   if (file.size > 20 * 1024 * 1024) { showToast('❌ PDF trop lourd (20 Mo max)'); return; }
+  plvScanPdf(file, cat);
   if (!navigator.onLine) { showToast('❌ Hors ligne — envoi impossible'); return; }
   showToast('⏳ Envoi du catalogue ' + cat + '...');
   var reader = new FileReader();
@@ -12688,6 +12815,7 @@ function renderPlvAdmin() {
       (cf && cf.fileId ? '<button class="btn-icon" title="Voir" onclick="plvOpenCat(\'' + cat + '\')">👁️</button>' : '') +
       '<button class="btn btn-secondary btn-sm" style="width:auto" onclick="plvPickPdf(\'' + cat + '\')">📤 ' + (cf && cf.fileId ? 'Remplacer' : 'Déposer') + '</button></div>';
   });
+  h += plvScanHtml();
   h += '<div class="section-label" style="margin-top:18px">📤 Bons de commande</div>';
   PLV_CATS.forEach(function(cat) {
     var who = {}, tot = 0;
@@ -12737,15 +12865,18 @@ function renderPlvEditForm() {
     plvField('Code interne', 'plv-f-code', e.code) + plvField('Nom', 'plv-f-nom', e.nom) +
     '<div class="form-group"><label class="form-label">Catégorie</label><select class="form-select" id="plv-f-cat">' +
     PLV_CATS.map(function(c) { return '<option' + (c === e.categorie ? ' selected' : '') + '>' + c + '</option>'; }).join('') + '</select></div>' +
-    '<div class="form-group"><label class="form-label">Section (page du catalogue)</label><input class="form-input" id="plv-f-sec" list="plv-sec-list" value="' + escHtml(e.section || '') + '">' +
-    '<datalist id="plv-sec-list">' + Object.keys(secs).map(function(s) { return '<option value="' + escHtml(s) + '">'; }).join('') + '</datalist></div>' +
+    '<div class="form-group"><label class="form-label">Section (page du catalogue)</label>' +
+    '<select class="form-select" id="plv-f-sec" onchange="document.getElementById(\'plv-f-secnew\').style.display=this.value===\'__new\'?\'\':\'none\'">' +
+    Object.keys(secs).sort().map(function(s) { return '<option value="' + escHtml(s) + '"' + (s === e.section ? ' selected' : '') + '>' + escHtml(s) + '</option>'; }).join('') +
+    '<option value="__new"' + (e.section ? '' : ' selected') + '>➕ Nouvelle section…</option></select>' +
+    '<input class="form-input" id="plv-f-secnew" placeholder="Nom de la nouvelle section" style="margin-top:6px' + (e.section ? ';display:none' : '') + '"></div>' +
     plvField('Conditionnement (ex : LOT/10)', 'plv-f-lot', e.lot) + plvField('Stock', 'plv-f-stock', e.stock, 'number') +
     '<div style="display:flex;gap:8px"><button class="btn btn-secondary" onclick="_plvEdit=null;renderPlvEditForm()">Annuler</button>' +
     '<button class="btn btn-primary" onclick="plvSaveEdit()">💾 Enregistrer</button></div></div>';
 }
 function plvSaveEdit() {
   var g = function(id) { return document.getElementById(id).value.trim(); };
-  var code = g('plv-f-code'), nom = g('plv-f-nom'), cat = g('plv-f-cat'), sec = g('plv-f-sec') || 'AUTRES PLV', lot = g('plv-f-lot'), stock = parseInt(g('plv-f-stock'), 10) || 0;
+  var code = g('plv-f-code'), nom = g('plv-f-nom'), cat = g('plv-f-cat'), sec = (g('plv-f-sec') === '__new' ? g('plv-f-secnew') : g('plv-f-sec')) || 'AUTRES PLV', lot = g('plv-f-lot'), stock = parseInt(g('plv-f-stock'), 10) || 0;
   if (!code || !nom) { showToast('❌ Code et nom obligatoires'); return; }
   var d = plvData(), key = cat + '|' + code;
   if (key !== _plvEdit.key && plvFind(key)) { showToast('❌ Ce code existe déjà en ' + cat); return; }
