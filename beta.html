@@ -15356,9 +15356,13 @@ function liveHtmlListe() {
       '<div style="font-size:12px;color:var(--dark-gray);margin:2px 0 10px">' + q.questions.length + ' question(s)</div>' +
       '<div style="display:flex;gap:8px"><button class="btn btn-primary btn-sm" style="flex:1;width:auto;background:#6D3FD1" onclick="liveOuvrir(\'' + escHtml(q.id) + '\')">▶ Ouvrir le lobby</button>' +
       '<button class="btn btn-secondary btn-sm" style="width:auto" aria-label="Modifier" onclick="liveEditer(\'' + escHtml(q.id) + '\')">✏️</button>' +
+      '<button class="btn btn-secondary btn-sm" style="width:auto" aria-label="Exporter en Excel" title="Exporter en Excel" onclick="liveExporter(\'' + escHtml(q.id) + '\')">📤</button>' +
       '<button class="btn btn-secondary btn-sm" style="width:auto" aria-label="Supprimer" onclick="liveSupprimer(\'' + escHtml(q.id) + '\')">🗑️</button></div></div>';
   });
-  h += '<button class="btn btn-secondary" style="margin-top:6px" onclick="liveEditer(\'\')">+ Nouveau quiz</button>';
+  h += '<button class="btn btn-secondary" style="margin-top:6px" onclick="liveEditer(\'\')">+ Nouveau quiz</button>' +
+    '<div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-secondary" style="flex:1" onclick="liveImporter(false)">📥 Importer un fichier</button>' +
+    '<button class="btn btn-secondary" style="width:auto" onclick="liveModele()">📄 Modèle</button></div>' +
+    '<div style="font-size:12px;color:var(--dark-gray);margin-top:6px;line-height:1.4">Excel (.xlsx) ou CSV : une ligne par question — Question, Réponses A à D, Bonne réponse (A à D), Temps en secondes. L’import s’ouvre dans l’éditeur pour relecture avant enregistrement.</div>';
   return h;
 }
 function liveOuvrir(id) { liveCmd('ouvrir', { quizId: id }); }
@@ -15408,6 +15412,7 @@ function liveRendreEditeur() {
       [10, 15, 20, 30, 45, 60].map(function(s) { return '<option value="' + s + '"' + (q.duree === s ? ' selected' : '') + '>' + s + ' s</option>'; }).join('') + '</select></label></div></div>';
   });
   h += '<button type="button" class="btn btn-secondary" onclick="liveAjouterQ()">+ Ajouter une question</button>' +
+    '<button type="button" class="btn btn-secondary" style="margin-top:8px" onclick="liveImporter(true)">📥 Ajouter des questions depuis un fichier</button>' +
     '<button type="button" class="btn btn-primary" style="margin-top:10px;background:#6D3FD1" onclick="liveEnregistrerQuiz()">💾 Enregistrer le quiz</button>' +
     '<button type="button" class="btn btn-secondary" style="margin-top:8px" onclick="liveFermerEditeur()">Annuler</button>';
   z.innerHTML = h;
@@ -15418,7 +15423,7 @@ function liveRetirerQ(i) {
   if (!_lv.edit.questions.length) _lv.edit.questions.push(liveQVide());
   liveRendreEditeur();
 }
-function liveFermerEditeur() { _lv.vue = 'etat'; _lv.edit = null; _lv.sig = ''; liveAppliquer(_lv.v); liveTick(); }
+function liveFermerEditeur() { _lv.vue = 'etat'; _lv.edit = null; _lv.sig = ''; if (_lv.v) liveAppliquer(_lv.v); liveTick(); }
 function liveEnregistrerQuiz() {
   liveCollecter();
   var e = _lv.edit, titre = String(e.titre || '').trim();
@@ -15433,6 +15438,101 @@ function liveEnregistrerQuiz() {
     if (r && r.status === 'ok') { _lv.quiz = r.quiz || []; showToast('✅ Quiz enregistré'); liveFermerEditeur(); }
     else showToast('⚠️ ' + ((r && r.message) || 'Échec'));
   }).catch(function() { showToast('⚠️ Échec réseau'); });
+}
+
+// ── Manager : import / export rapide des questions (Excel ou CSV) ──
+var LIVE_ENTETE = ['Question', 'Réponse A', 'Réponse B', 'Réponse C', 'Réponse D', 'Bonne réponse (A-D)', 'Temps (s)'];
+function liveDuree(n) {
+  n = parseInt(n, 10); if (isNaN(n)) return 20;
+  var o = [10, 15, 20, 30, 45, 60], b = o[0]; o.forEach(function(x) { if (Math.abs(x - n) < Math.abs(b - n)) b = x; }); return b;
+}
+function liveXlsxOk() { if (typeof XLSX === 'undefined') { showToast('⚠️ Module Excel indisponible (connexion ?)'); return false; } return true; }
+function liveEcrireXlsx(lignes, nomFichier) {
+  var ws = XLSX.utils.aoa_to_sheet([LIVE_ENTETE].concat(lignes)), wb = XLSX.utils.book_new();
+  ws['!cols'] = [{ wch: 50 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 20 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Questions');
+  XLSX.writeFile(wb, nomFichier);
+}
+function liveNomSur(t) { return String(t || 'quiz').replace(/[\\\/:*?"<>|]/g, ' ').trim() || 'quiz'; }
+function liveExporter(id) {
+  var q = (_lv.quiz || []).filter(function(x) { return x.id === id; })[0];
+  if (!q || !liveXlsxOk()) return;
+  liveEcrireXlsx(q.questions.map(function(x) {
+    var r = (x.reps || []).slice(0, 4); while (r.length < 4) r.push('');
+    return [x.question, r[0], r[1], r[2], r[3], 'ABCD'.charAt(x.bonne || 0), x.duree || 20];
+  }), 'Quiz live - ' + liveNomSur(q.titre) + '.xlsx');
+  showToast('📤 ' + q.questions.length + ' question(s) exportée(s)');
+}
+function liveModele() {
+  if (!liveXlsxOk()) return;
+  liveEcrireXlsx([
+    ['Combien de couleurs dans cette gamme ?', '2', '4', '6', '8', 'B', 20],
+    ['Quelle est la capitale de la France ?', 'Paris', 'Rome', '', '', 'A', 15]
+  ], 'Modele quiz live.xlsx');
+}
+// Une ligne de tableau → question, ou { err: 'raison' }
+function liveLigneVersQ(c) {
+  var q = String(c[0] == null ? '' : c[0]).trim();
+  var reps = [1, 2, 3, 4].map(function(k) { return String(c[k] == null ? '' : c[k]).trim(); });
+  if (!q) return { err: 'énoncé manquant' };
+  if (reps.filter(Boolean).length < 2) return { err: '2 réponses minimum' };
+  var b = String(c[5] == null ? '' : c[5]).trim(), i = -1;
+  if (/^[A-Da-d]$/.test(b)) i = 'ABCD'.indexOf(b.toUpperCase());
+  else if (/^[1-4]$/.test(b)) i = parseInt(b, 10) - 1;
+  else if (b) reps.forEach(function(r, k) { if (i < 0 && r && r.toLowerCase() === b.toLowerCase()) i = k; });
+  if (i < 0 || !reps[i]) return { err: 'bonne réponse non reconnue' };
+  return { question: q.slice(0, 300), reps: reps.map(function(r) { return r.slice(0, 120); }), bonne: i, duree: liveDuree(c[6]) };
+}
+function liveParser(rows) {
+  var qs = [], ign = [];
+  rows.forEach(function(c, n) {
+    if (!c || !c.some(function(x) { return String(x == null ? '' : x).trim(); })) return;
+    if (n === 0 && /^question/i.test(String(c[0]).trim())) return;
+    var r = liveLigneVersQ(c);
+    if (r.err) ign.push((n + 1) + ' (' + r.err + ')'); else qs.push(r);
+  });
+  return { questions: qs, ignorees: ign };
+}
+function liveLireFichier(f, fin) {
+  var fr = new FileReader(), csv = /\.(csv|txt)$/i.test(f.name);
+  fr.onerror = function() { showToast('⚠️ Lecture du fichier impossible'); };
+  fr.onload = function() {
+    try {
+      var wb;
+      if (csv) {   // CSV : UTF-8, sinon Windows-1252 (export Excel français) ; séparateur , ou ;
+        var buf = new Uint8Array(fr.result), t;
+        try { t = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { t = new TextDecoder('windows-1252').decode(buf); }
+        t = t.replace(/^\uFEFF/, '');
+        var l1 = t.split(/\r?\n/)[0] || '';
+        wb = XLSX.read(t, { type: 'string', FS: (l1.split(';').length > l1.split(',').length) ? ';' : ',' });
+      } else wb = XLSX.read(new Uint8Array(fr.result), { type: 'array' });
+      var ws = wb.Sheets[wb.SheetNames[0]];
+      fin(liveParser(XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false })));
+    } catch (e) { showToast('❌ Fichier illisible (Excel .xlsx ou CSV attendu)'); }
+  };
+  fr.readAsArrayBuffer(f);
+}
+// ajout = true : dans l'éditeur ouvert ; sinon nouveau quiz prérempli
+function liveImporter(ajout) {
+  if (!liveXlsxOk()) return;
+  var inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv,.txt'; inp.style.display = 'none';
+  inp.onchange = function() {
+    var f = inp.files && inp.files[0]; if (inp.parentNode) inp.parentNode.removeChild(inp); if (!f) return;
+    liveLireFichier(f, function(r) {
+      if (!r.questions.length) { showToast('❌ Aucune question valide' + (r.ignorees.length ? ' (ligne ' + r.ignorees[0] + ')' : '')); return; }
+      var res = r.questions.map(function(q) { return { question: q.question, reps: q.reps, bonne: q.bonne, duree: q.duree }; });
+      if (ajout && _lv.edit) {
+        liveCollecter();
+        _lv.edit.questions = _lv.edit.questions.filter(function(q) { return String(q.question).trim() || q.reps.some(function(x) { return String(x).trim(); }); }).concat(res);
+      } else {
+        _lv.edit = { id: '', titre: f.name.replace(/\.[^.]+$/, '').slice(0, 80), questions: res }; _lv.vue = 'editeur';
+      }
+      liveRendreEditeur();
+      showToast('📥 ' + res.length + ' question(s) importée(s)' + (r.ignorees.length ? ' — ignorées : ligne ' + r.ignorees.slice(0, 5).join(', ') : '') + ' — à enregistrer');
+    });
+  };
+  document.body.appendChild(inp); inp.click();
 }
 
 // ── Accueil : bandeau « quiz live ouvert » ──
