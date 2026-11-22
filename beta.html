@@ -1639,6 +1639,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     <span class="topbar-title">Synchronisation</span>
   </div>
   <div class="content">
+    <div data-reglages="Migration" style="margin-bottom:12px"></div>
     <div id="sync-center-status" style="border-radius:var(--radius);padding:16px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px"></div>
     <!-- Actions dynamiques selon le rôle -->
     <div id="sync-role-actions"></div>
@@ -2122,10 +2123,11 @@ var PARAM_DEFS = [
   { k: 'plvStockSource', lbl: 'Nom de la source de stock', g: 'PLV', aide: 'Ex. le nom de votre logisticien' },
   { k: 'plvBonPrefixe', lbl: 'Début du nom des bons de commande', g: 'PLV' },
   { k: 'libFormateur', lbl: 'Libellé de l’espace formateur', g: 'Formateur' },
-  { k: 'emailAnomalies', lbl: 'Adresse(s) de réception des anomalies', g: 'Anomalies', aide: 'Une ou plusieurs adresses séparées par des virgules. Vide = adresse par défaut du script.' }
+  { k: 'emailAnomalies', lbl: 'Adresse(s) de réception des anomalies', g: 'Anomalies', aide: 'Une ou plusieurs adresses séparées par des virgules. Vide = adresse par défaut du script.' },
+  { k: 'migrationDate', lbl: 'Date de bascule vers la nouvelle adresse (AAAA-MM-JJ)', g: 'Migration', aide: 'Avant cette date : bandeau d’annonce. À partir de cette date : les utilisateurs de l’ancienne adresse sont renvoyés vers la nouvelle. Vide = aucune bascule.' }
 ];
 // Où se règle chaque groupe (hors « Marque », réglée dans Paramétrage)
-var PARAM_ECRANS = { Offres: 'Éditer les offres', Promos: 'Calendrier Promos', PLV: 'Gestion PLV', Formateur: 'Gérer les rôles', Anomalies: 'Report anomalie' };
+var PARAM_ECRANS = { Offres: 'Éditer les offres', Promos: 'Calendrier Promos', PLV: 'Gestion PLV', Formateur: 'Gérer les rôles', Anomalies: 'Report anomalie', Migration: 'Bascule d’adresse' };
 
 function P(k) {
   var v = (k === 'nom' || k === 'nomCourt') ? '' : (db && db.parametres && db.parametres[k]);   // v19.20 : nom figé (APP_CONFIG)
@@ -15556,6 +15558,124 @@ setInterval(function() {
   var a = document.querySelector('.screen.active');
   if (a && a.id === 'screen-home' && !document.hidden && currentAccount) liveBandeau();
 }, 20000);
+</script>
+<!-- ═══════ BASCULE D'ADRESSE (v19.21) — annonce, envoi des données en attente, redirection ═══════ -->
+<script>
+var MIGRATION_URL = 'https://focus-appli.github.io/canon/';   // nouvelle adresse de l'appli (ne change pas avec la date)
+var _mg = { ecran: false, plusTard: false, envoi: false };
+
+function migrationSurNouvelle() { try { return location.hostname === new URL(MIGRATION_URL).hostname; } catch (e) { return true; } }
+function migrationDateLue() {
+  var d = '';
+  try {
+    d = String(P('migrationDate') || '').trim();
+    var charge = db && db.parametres && Object.keys(db.parametres).length > 0;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) localStorage.setItem('canon_migration_date', d);
+    else if (charge) { localStorage.removeItem('canon_migration_date'); d = ''; }
+    else d = localStorage.getItem('canon_migration_date') || '';
+  } catch (e) { try { d = localStorage.getItem('canon_migration_date') || ''; } catch (e2) {} }
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
+}
+function migrationAujourdhui() { var n = new Date(); return n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' + ('0' + n.getDate()).slice(-2); }
+function migrationDateFr(d) { return d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4); }
+function migrationLien() { return MIGRATION_URL + (MIGRATION_URL.indexOf('?') < 0 ? '?depuis=ancienne' : ''); }
+function migrationEnAttente() { try { return getPendingSummary().total; } catch (e) { return 0; } }
+
+// Envoie tout ce qui attend (résultats, modifications, actions, anomalies, rapports)
+async function migrationEnvoyer() {
+  if (_mg.envoi) return;
+  _mg.envoi = true;
+  try {
+    var res = (db.results || []).filter(function(r) { return !r.synced; });
+    for (var i = 0; i < res.length; i++) { try { await syncResult(res[i]); } catch (e) {} }
+    ['flushPendingOps', 'flushApiQueue', 'flushPendingLogs'].forEach(function(f) { try { if (typeof window[f] === 'function') window[f](); } catch (e) {} });
+    try { if (typeof flushAnomalies === 'function') flushAnomalies(false); } catch (e) {}
+    (db.rapports || []).filter(function(r) { return !r.docUrl; }).forEach(function(r) { try { if (typeof retryRapport === 'function') retryRapport(r.id); } catch (e) {} });
+    await new Promise(function(r) { setTimeout(r, 6000); });   // laisse partir les envois asynchrones
+    try { saveDB(); updateNetworkUI(); } catch (e) {}
+  } finally { _mg.envoi = false; }
+}
+
+// ── Annonce (avant la date) : bandeau sur l'accueil ──
+function migrationBandeau() {
+  var ex = document.getElementById('mg-bandeau'); if (ex) ex.remove();
+  if (migrationSurNouvelle()) return;
+  var d = migrationDateLue(); if (!d || migrationAujourdhui() >= d) return;
+  var wrap = document.getElementById('pending-banner-wrap'); if (!wrap || !wrap.parentNode) return;
+  var n = migrationEnAttente();
+  var el = document.createElement('div'); el.id = 'mg-bandeau'; el.setAttribute('role', 'status');
+  el.style.cssText = 'background:#EEF4FF;border:1px solid #B7CCF5;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.5;color:#1F3A6E';
+  el.innerHTML = '<b>📣 L’appli change d’adresse le ' + migrationDateFr(d) + '</b><br>Ce jour-là, tu seras renvoyé vers la nouvelle adresse : il faudra te reconnecter et ajouter l’appli à ton écran d’accueil.' +
+    (n > 0 ? '<br><b>' + n + ' élément(s) en attente d’envoi</b> — synchronise avant cette date.' +
+      '<br><button class="btn btn-secondary btn-sm" style="width:auto;margin-top:8px" onclick="goTo(\'screen-sync-center\')">Voir les éléments en attente</button>' : '');
+  wrap.parentNode.insertBefore(el, wrap);
+}
+
+// ── Jour J : écran plein, envoi des données, puis redirection ──
+function migrationFermer() { var e = document.getElementById('mg-ecran'); if (e) e.remove(); _mg.ecran = false; }
+function migrationAller() { try { location.replace(migrationLien()); } catch (e) { location.href = migrationLien(); } }
+function migrationMajEcran() {
+  var z = document.getElementById('mg-corps'); if (!z) return;
+  var n = migrationEnAttente(), en = typeof isOnline !== 'undefined' && isOnline;
+  var bt = 'class="btn btn-primary" style="margin-top:10px;background:#6D3FD1"';
+  var h;
+  if (n === 0) {
+    h = '<div style="font-size:15px;margin-bottom:6px">✅ Tout est envoyé.</div><div id="mg-cpt" style="font-size:13px;color:#555">Redirection dans <b>3</b> s…</div>' +
+        '<button ' + bt + ' onclick="migrationAller()">Ouvrir la nouvelle adresse</button>';
+  } else if (!en) {
+    h = '<div style="font-size:14px;line-height:1.5;margin-bottom:6px">⚠️ <b>' + n + ' élément(s) pas encore envoyé(s)</b> et pas de réseau. Reviens ici dès que tu as du réseau : ils ne passeront pas sur la nouvelle adresse.</div>' +
+        '<button class="btn btn-secondary" style="margin-top:10px" onclick="_mg.plusTard=true;migrationFermer()">Plus tard</button>';
+  } else {
+    h = '<div style="font-size:14px;line-height:1.5;margin-bottom:6px">⏳ Envoi de <b>' + n + ' élément(s)</b> en attente…</div>' +
+        '<button ' + bt + ' onclick="migrationEnvoyer().then(migrationMajEcran)">Réessayer l’envoi</button>' +
+        '<button class="btn btn-secondary" style="margin-top:8px" onclick="migrationAller()">Ouvrir quand même (éléments perdus)</button>';
+  }
+  z.innerHTML = h;
+  if (n === 0) {
+    var s = 3; clearInterval(_mg.cpt);
+    _mg.cpt = setInterval(function() { s--; var c = document.getElementById('mg-cpt'); if (!c) { clearInterval(_mg.cpt); return; } if (s <= 0) { clearInterval(_mg.cpt); migrationAller(); } else c.innerHTML = 'Redirection dans <b>' + s + '</b> s…'; }, 1000);
+  }
+}
+function migrationEcran() {
+  if (_mg.ecran || _mg.plusTard) return;
+  _mg.ecran = true;
+  var e = document.createElement('div'); e.id = 'mg-ecran'; e.setAttribute('role', 'dialog'); e.setAttribute('aria-modal', 'true');
+  e.style.cssText = 'position:fixed;inset:0;z-index:99999;background:var(--cream,#fff);display:flex;align-items:center;justify-content:center;padding:24px;text-align:center';
+  e.innerHTML = '<div style="max-width:340px"><div style="font-size:42px">🚀</div><h2 style="margin:8px 0">L’application a changé d’adresse</h2>' +
+    '<p style="font-size:13px;line-height:1.5;color:#555">Tu vas être redirigé vers la nouvelle adresse. Reconnecte-toi, puis ajoute l’appli à ton écran d’accueil (menu du navigateur → « Ajouter à l’écran d’accueil »).</p>' +
+    '<div id="mg-corps"></div></div>';
+  document.body.appendChild(e);
+  migrationMajEcran();
+  if (migrationEnAttente() > 0 && typeof isOnline !== 'undefined' && isOnline) migrationEnvoyer().then(migrationMajEcran);
+}
+
+function migrationControle() {
+  if (migrationSurNouvelle()) return;
+  var d = migrationDateLue();
+  if (d && migrationAujourdhui() >= d) migrationEcran(); else { if (_mg.ecran) migrationFermer(); }
+  migrationBandeau();
+}
+
+// ── Nouvelle adresse : message d'accueil une seule fois ──
+function migrationAccueil() {
+  if (!migrationSurNouvelle() || !/[?&]depuis=ancienne/.test(location.search)) return;
+  try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+  try { if (localStorage.getItem('canon_migration_vue')) return; localStorage.setItem('canon_migration_vue', '1'); } catch (e) {}
+  setTimeout(function() { alert('Bienvenue sur la nouvelle adresse de l’application.\n\nReconnecte-toi, puis ajoute l’appli à ton écran d’accueil (menu du navigateur → « Ajouter à l’écran d’accueil »). Tu peux supprimer l’ancienne icône.'); }, 1500);
+}
+
+(function() {
+  var _rhrc = renderHomeRoleCards;
+  renderHomeRoleCards = function() { _rhrc(); try { migrationControle(); } catch (e) {} };
+  var _er = enregistrerReglages;
+  enregistrerReglages = function(g) {
+    var el = document.getElementById('pr-migrationDate');
+    if (el && el.value.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(el.value.trim())) { showToast('❌ Date au format AAAA-MM-JJ'); return; }
+    return _er.apply(this, arguments);
+  };
+  window.addEventListener('load', function() { setTimeout(function() { try { migrationControle(); migrationAccueil(); } catch (e) {} }, 1500); });
+  setInterval(function() { try { migrationControle(); } catch (e) {} }, 30000);
+})();
 </script>
 <script>
 // v19.20 : bibliothèques Excel / PDF hébergées avec l'appli — mises en cache pour le hors-ligne
