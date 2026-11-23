@@ -15157,11 +15157,19 @@ function liveTick() {
   _lv.occ = true;
   apiPostJSON({ action: 'liveEtat' }).then(liveAppliquer).catch(function() {}).then(function() { _lv.occ = false; });
 }
+function liveLancer() {
+  var v = _lv.v;
+  if (!v || !v.nbJoueurs) { showToast('⚠️ Aucun joueur dans le lobby : un CDS doit d\'abord se connecter'); return; }
+  var b = document.getElementById('live-btn-lancer');
+  if (b) { b.disabled = true; b.textContent = 'Lancement…'; }
+  liveCmd('lancer');
+}
 function liveCmd(cmd, extra) {
+  function rendre() { _lv.sig = ''; if (_lv.v) liveAppliquer(_lv.v); }   // remet le bouton en état
   apiPostJSON(Object.assign({ action: 'liveCmd', cmd: cmd }, extra || {})).then(function(r) {
     if (r && r.status === 'ok') { _lv.sig = ''; liveAppliquer(r); }
-    else showToast('⚠️ ' + ((r && r.message) || 'Échec'));
-  }).catch(function() { showToast('⚠️ Échec réseau'); });
+    else { showToast('⚠️ ' + ((r && r.message) || 'Échec')); rendre(); }
+  }).catch(function() { showToast('⚠️ Échec réseau'); rendre(); });
 }
 function liveRepondre(k) {
   var v = _lv.v;
@@ -15250,7 +15258,7 @@ function liveHtmlLobby(v) {
       return '<span style="background:var(--beige);border-radius:999px;padding:7px 12px;font-size:13px">' + escHtml(j.nom) + (j.secteur ? ' <span style="opacity:.6;font-size:12px">· ' + escHtml(j.secteur) + '</span>' : '') + '</span>';
     }).join('') + '</div>';
   if (v.manager) {
-    h += '<button class="btn btn-primary" style="margin-top:18px;background:#6D3FD1"' + (v.nbJoueurs ? '' : ' disabled') + ' onclick="liveCmd(\'lancer\')">▶ Lancer le quiz</button>' +
+    h += '<button id="live-btn-lancer" class="btn btn-primary" style="margin-top:18px;background:#6D3FD1;' + (v.nbJoueurs ? '' : 'opacity:.45;') + '" onclick="liveLancer()">▶ Lancer le quiz</button>' +
       '<button class="btn btn-secondary" style="margin-top:8px" onclick="liveAnnuler()">Annuler la partie</button>';
   }
   return h;
