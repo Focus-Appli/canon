@@ -13840,7 +13840,7 @@ function assistantMasque() { return !!lireVu('assist_masque'); }
 function carteAssistant(dansAdmin) {
   if (!currentAccount || !hasRole('manager')) return '';
   var e = etapesAssistant(), faites = e.filter(function(x) { return x.ok; }).length;
-  if (faites === e.length || (!dansAdmin && assistantMasque())) return '';
+  if (faites === e.length || assistantMasque()) return '';
   var pct = Math.round(faites / e.length * 100);
   return '<div class="fade-up" onclick="ouvrirAssistant()" style="cursor:pointer;background:linear-gradient(135deg,var(--brand),#7A1020);color:#fff;border-radius:14px;padding:14px 16px;margin-bottom:16px">' +
     '<div style="display:flex;align-items:center;gap:12px"><span style="font-size:26px">🚀</span><div style="flex:1">' +
