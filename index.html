@@ -920,7 +920,7 @@ window.appliquerMarqueSplash(window.marqueInitiale());
     <div class="sync-badge offline" id="home-sync-badge" style="cursor:pointer" onclick="ouvrirEtatSync()" title="État de l'envoi">
       <div class="sync-dot"></div><span id="home-sync-label">Hors ligne</span>
     </div>
-    <div class="topbar-user" id="home-topbar-user" style="display:none;cursor:default" title="Compte connecté">
+    <div class="topbar-user" id="home-topbar-user" style="display:none;cursor:pointer" title="Compte connecté — réglage biométrie" onclick="ouvrirReglageBiometrie()">
       <div class="topbar-user-initials" id="home-user-initials">?</div>
       <div class="topbar-user-name" id="home-user-name">—</div>
     </div>
@@ -7391,6 +7391,176 @@ function renewSessionIfNeeded() {
   }).catch(function() {});
 }
 
+// ══════════════════════════════════════════════════════════
+// BIOMÉTRIE — verrou local (Face ID / empreinte / code du téléphone) via WebAuthn
+// C'est un verrou sur CE téléphone : la session par jeton reste la seule preuve
+// d'identité auprès du serveur ; la biométrie décide seulement si l'appli s'ouvre.
+// Ce bloc doit rester AVANT le démarrage (les var ne sont pas hissées avec leur valeur).
+// ══════════════════════════════════════════════════════════
+var BIO_KEY = PFX + 'bio';
+var BIO_REFUS_KEY = PFX + 'bio_refus';
+var BIO_DELAI_VERROU = 5 * 60 * 1000;   // reverrouillage après 5 min en arrière-plan
+var _bioEnCours = false;
+var _bioHiddenAt = 0;
+
+function bioInfo() {
+  try { return JSON.parse(localStorage.getItem(BIO_KEY) || 'null'); } catch (e) { return null; }
+}
+// Active uniquement si la biométrie a été réglée pour le compte de la session en cours
+function bioActive() {
+  var b = bioInfo(), s = getSession();
+  return !!(b && b.credId && s && s.accountId && b.accountId === s.accountId);
+}
+function bioB64(buf) {
+  var s = '';
+  new Uint8Array(buf).forEach(function(c) { s += String.fromCharCode(c); });
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function bioDeB64(str) {
+  str = String(str).replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  var bin = atob(str), out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function bioSupporte() {
+  try {
+    if (!(window.isSecureContext && window.PublicKeyCredential && navigator.credentials && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable)) return Promise.resolve(false);
+    return PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(function(ok) { return !!ok; }).catch(function() { return false; });
+  } catch (e) { return Promise.resolve(false); }
+}
+
+// Enregistre une clé liée à ce téléphone (doit partir d'un geste de l'utilisateur)
+function bioActiver() {
+  var s = getSession();
+  if (!s || !s.accountId) return;
+  var account = s.account || currentAccount || {};
+  var marque = (window.marqueInitiale && marqueInitiale().nomCourt) || 'Focus';
+  bioSupporte().then(function(ok) {
+    if (!ok) { infoModal('La biométrie n’est pas disponible sur cet appareil.'); return; }
+    return navigator.credentials.create({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: marque },
+      user: {
+        id: new TextEncoder().encode(String(s.accountId)),
+        name: String(account.username || account.name || s.accountId),
+        displayName: String(account.name || marque)
+      },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
+      timeout: 60000,
+      attestation: 'none'
+    } }).then(function(cred) {
+      if (!cred) return;
+      localStorage.setItem(BIO_KEY, JSON.stringify({ credId: bioB64(cred.rawId), accountId: s.accountId, ts: Date.now() }));
+      try { localStorage.removeItem(BIO_REFUS_KEY); } catch (e) {}
+      showToast('✅ Biométrie activée');
+    });
+  }).catch(function(err) {
+    showToast(err && err.name === 'NotAllowedError' ? 'Activation annulée' : '❌ Biométrie indisponible sur cet appareil');
+  });
+}
+
+// Demande la biométrie ; réussit seulement si le téléphone a vraiment vérifié la personne (bit UV)
+function bioVerifier() {
+  var b = bioInfo();
+  if (!b || !b.credId) return Promise.reject(new Error('bio-absente'));
+  return navigator.credentials.get({ publicKey: {
+    challenge: crypto.getRandomValues(new Uint8Array(32)),
+    allowCredentials: [{ type: 'public-key', id: bioDeB64(b.credId), transports: ['internal'] }],
+    userVerification: 'required',
+    timeout: 60000
+  } }).then(function(a) {
+    if (!a || !a.response || !a.response.authenticatorData) throw new Error('bio-vide');
+    var flags = new Uint8Array(a.response.authenticatorData)[32];
+    if (!(flags & 0x04)) throw new Error('bio-non-verifiee');
+    return true;
+  });
+}
+
+function bioVerrouiller(auto) {
+  if (document.getElementById('bio-lock')) return;
+  var ov = document.createElement('div');
+  ov.id = 'bio-lock';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10040;background:var(--white,#fff);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;text-align:center';
+  ov.innerHTML =
+    '<div style="font-size:54px;margin-bottom:14px">&#128274;</div>' +
+    '<div style="font-size:20px;font-weight:700;margin-bottom:6px">Application verrouillée</div>' +
+    '<div style="font-size:13px;color:var(--dark-gray);margin-bottom:22px">Vérifiez votre identité pour continuer</div>' +
+    '<button class="btn btn-primary" id="bio-lock-btn" style="max-width:300px;width:100%">Déverrouiller</button>' +
+    '<div id="bio-lock-msg" style="font-size:12px;color:var(--coral);min-height:18px;margin-top:12px"></div>' +
+    '<button type="button" id="bio-lock-mdp" style="background:none;border:none;color:var(--dark-gray);font-size:12px;text-decoration:underline;cursor:pointer;padding:8px;margin-top:6px">Me connecter avec le mot de passe</button>';
+  document.body.appendChild(ov);
+  document.getElementById('bio-lock-btn').onclick = function() { bioDeverrouiller(false); };
+  document.getElementById('bio-lock-mdp').onclick = bioSecours;
+  if (auto) setTimeout(function() { bioDeverrouiller(true); }, 400);
+}
+
+function bioDeverrouiller(silencieux) {
+  if (_bioEnCours) return;
+  _bioEnCours = true;
+  bioVerifier().then(function() {
+    var ov = document.getElementById('bio-lock');
+    if (ov) ov.remove();
+  }).catch(function(err) {
+    var msg = document.getElementById('bio-lock-msg');
+    if (!msg || silencieux) return;
+    msg.textContent = (err && err.name === 'NotAllowedError')
+      ? 'Vérification annulée — touchez « Déverrouiller » pour réessayer.'
+      : 'Vérification impossible — réessayez ou utilisez le mot de passe.';
+  }).then(function() { _bioEnCours = false; });
+}
+
+// Secours (téléphone changé, biométrie réinitialisée) : on désactive et on repasse par le mot de passe
+function bioSecours() {
+  try { localStorage.removeItem(BIO_KEY); } catch (e) {}
+  clearSession();
+  window.location.href = pageCourante();
+}
+
+function bioProposerActivation(account, offline) {
+  var b = bioInfo();
+  if (b && account && b.accountId !== account.id) { try { localStorage.removeItem(BIO_KEY); } catch (e) {} b = null; }
+  _bioHiddenAt = 0;
+  if (b || offline) return;
+  try { if (localStorage.getItem(BIO_REFUS_KEY) === '1') return; } catch (e) {}
+  bioSupporte().then(function(ok) {
+    if (!ok) return;
+    setTimeout(function() {
+      if (bioInfo()) return;
+      confirmerModal('Protéger l’ouverture de l’application par biométrie ou code du téléphone ?', bioActiver, {
+        ok: 'Activer', annuler: 'Pas maintenant',
+        onAnnuler: function() {
+          try { localStorage.setItem(BIO_REFUS_KEY, '1'); } catch (e) {}
+          showToast('Réglable en touchant votre nom en haut de l’accueil');
+        }
+      });
+    }, 2500);
+  });
+}
+
+// Réglage manuel : touche sur le nom en haut de l'accueil
+function ouvrirReglageBiometrie() {
+  bioSupporte().then(function(ok) {
+    if (!ok) { infoModal('La biométrie n’est pas disponible sur cet appareil (ou ce navigateur ne la gère pas).'); return; }
+    if (bioActive()) {
+      confirmerModal('Biométrie activée sur cet appareil.\nVoulez-vous la désactiver ?', function() {
+        try { localStorage.removeItem(BIO_KEY); } catch (e) {}
+        showToast('Biométrie désactivée');
+      }, { ok: 'Désactiver', annuler: 'Garder' });
+    } else {
+      confirmerModal('Protéger l’ouverture de l’application par biométrie ou code du téléphone ?', bioActiver, { ok: 'Activer', annuler: 'Annuler' });
+    }
+  });
+}
+
+// Reverrouillage au retour au premier plan après un long passage en arrière-plan
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') { _bioHiddenAt = Date.now(); return; }
+  if (_bioHiddenAt && Date.now() - _bioHiddenAt > BIO_DELAI_VERROU && currentAccount && bioActive()) bioVerrouiller(true);
+  _bioHiddenAt = 0;
+});
+
 // ── Correctif d'ordre de declaration ─────────────────────────────
 // SESSION_KEY est aussi declare plus bas, avec le module de session. Or var
 // ne hisse que la DECLARATION, pas la valeur : au demarrage la variable vaut
@@ -7412,6 +7582,8 @@ try {
   var _sess = getSession();
   var restoredAccount = (_sess && _sess.account) ? _sess.account : null;
   var _sessValid = sessionIsValid();
+  // Biométrie activée : l'écran de verrouillage couvre l'appli dès le démarrage
+  if (restoredAccount && _sessValid && bioActive()) { try { bioVerrouiller(true); } catch(e) {} }
 
   setTimeout(function() {
     // Un lien de reinitialisation prime sur tout le reste, session comprise
@@ -7431,6 +7603,7 @@ try {
       try { setTimeout(flushPendingLogs, 2000); } catch(e) {}
       // Prolonge la session et recupere les roles a jour, sans rien demander
       try { setTimeout(renewSessionIfNeeded, 3000); } catch(e) {}
+      try { bioProposerActivation(restoredAccount, false); } catch(e) {}
     } else {
       if (restoredAccount && !_sessValid) {
         clearSession();
@@ -8812,7 +8985,7 @@ setTimeout(flushApiQueue, 4000);
 // Envoi via fetch no-cors (fire & forget) — les logs partent
 // aussi vite qu'ils sont générés et sont mis en attente si offline.
 // ══════════════════════════════════════════════════════════
-var APP_VERSION = 'v5.1.0';
+var APP_VERSION = 'v5.1.1';
 var _dmActiveTab = 'versions';
 var _dmData = { sessions: [], logs: [] };
 
@@ -9825,6 +9998,7 @@ function loginSuccess(account, offline) {
 
   goTo('screen-home');
   showToast('Bienvenue ' + account.name + ' !');
+  try { bioProposerActivation(account, offline); } catch(e) {}
   try { syncSession(true); logEvent('login', offline ? 'hors ligne' : 'ok'); } catch(e) {}
   if (!offline && navigator.onLine) {
     showToast('Synchronisation en cours\u2026');
