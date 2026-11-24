@@ -7149,7 +7149,7 @@ function goTo(screenId) {
   if (!target || (current && current.id === screenId)) return;
 
   var _retourExplicite = _isGoingBack;
-  var goingBack = _isGoingBack || (screenId === 'screen-home');
+  var goingBack = _isGoingBack || (screenId === 'screen-home') || (_screenHistory.indexOf(screenId) !== -1);
 
   if (current) {
     current.classList.add(goingBack ? 'slide-out-right' : 'slide-out-left');
@@ -7172,7 +7172,8 @@ function goTo(screenId) {
   } else if (screenId === 'screen-home') {
     _screenHistory = ['screen-home'];
   } else {
-    if (_screenHistory[_screenHistory.length - 1] !== screenId) _screenHistory.push(screenId);
+    var _hi = _screenHistory.lastIndexOf(screenId);
+    if (_hi !== -1) _screenHistory.length = _hi + 1; else _screenHistory.push(screenId);
     if (!_popstateHandling) {
       history.pushState({screen: screenId}, '', '');
     }
