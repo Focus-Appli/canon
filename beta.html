@@ -14923,7 +14923,34 @@ function ccJeuFiche(acc) {
     [j.parties, 'Parties'], [j.points || 0, 'Points'], [j.reussite + '%', 'Réussite'],
     [jeuTemps(j.tempsQuestion), 'Temps / q.'], [(Number(j.serie) || 0) > 1 ? '🔥 ' + j.serie : (j.serie || '—'), 'Série'], [rangP + '/' + js.length, 'Rang points']
   ].map(function(x) { return '<div><b>' + x[0] + '</b><span>' + x[1] + '</span></div>'; }).join('') + '</div>' +
-    '<div class="cc-ligne"><span>Cette semaine : <b style="color:' + (cetteSemaine ? 'var(--success)">✓ a joué' : 'var(--brand)">✗ pas encore joué') + '</b> · rang vitesse : <b>' + rangV + '/' + js.length + '</b> · dernière partie : <b>' + escHtml(rgDateCourte(j.derniere || '') || '—') + '</b></span></div>';
+    '<div class="cc-ligne"><span>Cette semaine : <b style="color:' + (cetteSemaine ? 'var(--success)">✓ a joué' : 'var(--brand)">✗ pas encore joué') + '</b> · rang vitesse : <b>' + rangV + '/' + js.length + '</b> · dernière partie : <b>' + escHtml(rgDateCourte(j.derniere || '') || '—') + '</b></span></div>' +
+    '<button class="btn btn-secondary btn-sm" style="width:auto;margin-top:8px" onclick="ccJeuErreurs(\'' + escHtml(String(acc.id).replace(/'/g, '')) + '\')">❌ Voir ses erreurs</button><div id="cc-jeu-err"></div>';
+}
+
+// Erreurs d'un CDS au jeu (manager / admin) : question, réponse donnée, bonne réponse
+function ccJeuErreurs(id) {
+  var z = document.getElementById('cc-jeu-err'); if (!z) return;
+  z.innerHTML = '<div class="cc-vide">⏳ Chargement…</div>';
+  apiJsonp({ action: 'jeuErreurs', compteId: id }, { timeout: 30000, retries: 1 }).then(function(r) {
+    if (!r || r.status !== 'ok' || !Array.isArray(r.parties)) throw new Error((r && r.message) || 'Apps Script pas à jour (v19.20 déployée ?)');
+    var ps = r.parties;
+    if (!ps.length) { z.innerHTML = '<div class="cc-vide">Aucune partie terminée</div>'; return; }
+    var nbE = ps.reduce(function(n, p) { return n + p.erreurs.length; }, 0);
+    z.innerHTML = '<div class="cc-sub" style="margin:10px 0 6px">' + nbE + ' erreur(s) sur ' + ps.length + ' partie(s)</div>' +
+      ps.map(function(p) {
+        var d = String(p.semaine || '').split('-');
+        return '<details style="background:var(--white);border-radius:12px;padding:10px 12px;margin-bottom:6px"' + (p.erreurs.length ? ' open' : '') + '>' +
+          '<summary style="cursor:pointer;font-size:13px;font-weight:600">Semaine du ' + (d[2] || '') + '/' + (d[1] || '') + ' — ' + p.bonnes + '/' + p.total + (p.erreurs.length ? '' : ' ✅ sans faute') + '</summary>' +
+          p.erreurs.map(function(e) {
+            return '<div style="padding:8px 0;border-top:1px solid var(--beige);font-size:13px"><div style="font-weight:600">' + escHtml(e.q) + '</div>' +
+              '<div style="color:var(--dark-gray);margin-top:3px;line-height:1.5">' +
+              (e.choisie ? 'Réponse donnée : <b style="color:var(--brand)">' + escHtml(e.choisie) + '</b>' : '⏰ Temps écoulé') +
+              '<br>Bonne réponse : <b>' + escHtml(e.bonne) + '</b> · ' + jeuTemps(e.ms) + '</div></div>';
+          }).join('') + '</details>';
+      }).join('');
+  }).catch(function(e) {
+    z.innerHTML = '<div class="cc-vide">⚠️ ' + escHtml((e && e.message) || 'Indisponible') + '</div>';
+  });
 }
 
 // ══════════════════════════════════════════════════════════
