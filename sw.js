@@ -92,7 +92,8 @@ self.addEventListener('activate', function(e) {
   e.waitUntil(
     caches.keys().then(function(keys) {
       return Promise.all(keys.map(function(key) {
-        if (KEEP_CACHES.indexOf(key) === -1) return caches.delete(key);
+        // ne touche qu'aux caches de CETTE appli (Canon et TCL partagent l'adresse focus-appli.github.io)
+        if (key.indexOf('canon-focus-') === 0 && KEEP_CACHES.indexOf(key) === -1) return caches.delete(key);
       }));
     }).then(function() { return self.clients.claim(); })
   );
