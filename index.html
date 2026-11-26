@@ -8859,6 +8859,7 @@ function withToken(payload) {
   if (!payload || payload.action === 'login' || payload.action === 'resetConfirm') return payload;
   var t = sessionToken();
   if (t) payload.token = t;
+  if (t) payload.filtre = 1;   // v19.23 : le serveur n'envoie que les données utiles à ce compte
   return payload;
 }
 
