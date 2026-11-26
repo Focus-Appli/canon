@@ -16347,6 +16347,12 @@ function ouvrirFichierApp(id, nom, telecharger) {
     else { var a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
     setTimeout(function() { URL.revokeObjectURL(url); }, 300000);
   }).catch(function(e) {
+    // Ancien document resté hors du Drive de l'appli : ancien lien en secours (à redéposer dans l'appli)
+    if (/introuvable|non autoris/i.test(e.message)) {
+      var lien = telecharger ? 'https://drive.google.com/uc?export=download&id=' + id : 'https://drive.google.com/file/d/' + id + '/view';
+      if (w) w.location.href = lien; else _woAvant.call(window, lien, '_blank');
+      return;
+    }
     if (w) { try { w.close(); } catch (x) {} }
     showToast('❌ ' + (nom || 'Fichier') + ' : ' + e.message);
   });
